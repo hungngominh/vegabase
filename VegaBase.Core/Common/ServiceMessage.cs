@@ -9,7 +9,7 @@ public class ServiceMessage
     public static ServiceMessage operator +(ServiceMessage msg, string error)
     {
         if (!string.IsNullOrEmpty(error) && string.IsNullOrEmpty(msg.Value))
-            msg.Value = error;
+            return new ServiceMessage { Value = error };
         return msg;
     }
 }
