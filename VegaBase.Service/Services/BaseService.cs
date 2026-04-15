@@ -20,13 +20,13 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     protected readonly IDbActionExecutor _executor;
     private readonly IPermissionCache _permissionCache;
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly ILogger<BaseService<TEntity, TModel, TParam>> _logger;
+    private readonly ILogger _logger;
 
     protected BaseService(
         IDbActionExecutor executor,
         IPermissionCache permissionCache,
         IHttpContextAccessor httpContextAccessor,
-        ILogger<BaseService<TEntity, TModel, TParam>> logger)
+        ILogger logger)
     {
         _executor            = executor;
         _permissionCache     = permissionCache;
