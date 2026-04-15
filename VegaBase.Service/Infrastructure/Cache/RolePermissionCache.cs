@@ -5,8 +5,7 @@ namespace VegaBase.Service.Infrastructure.Cache;
 /// </summary>
 public class RolePermissionCache
 {
-    public Guid   RoleId   { get; init; }
-    public string RoleCode { get; init; } = string.Empty;
+    public Guid RoleId { get; init; }
 
     /// <summary>Key: screenCode — Value: allowed actions</summary>
     public Dictionary<string, ScreenActions> Screens { get; init; } = new();

@@ -14,6 +14,7 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
 {
     protected readonly ConcurrentDictionary<TKey, TCacheModel> _store = new();
     private volatile bool _allLoaded = false;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly IServiceScopeFactory? _scopeFactory;
 
     protected MemoryCacheStore() { }
@@ -35,12 +36,23 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
     {
         if (_allLoaded) return _store.Values.ToList();
 
-        _store.Clear();
-        foreach (var item in loader())
-            if (ExtractKey(item) is { } key)
-                _store[key] = item;
+        _loadLock.Wait();
+        try
+        {
+            if (_allLoaded) return _store.Values.ToList();
 
-        _allLoaded = true;
+            _store.Clear();
+            foreach (var item in loader())
+                if (ExtractKey(item) is { } key)
+                    _store[key] = item;
+
+            _allLoaded = true;
+        }
+        finally
+        {
+            _loadLock.Release();
+        }
+
         return _store.Values.ToList();
     }
 

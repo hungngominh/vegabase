@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using VegaBase.Core.Common;
 using VegaBase.Core.Entities;
 using VegaBase.Service.Infrastructure.DbActions;
@@ -19,12 +20,18 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     protected readonly IDbActionExecutor _executor;
     private readonly IPermissionCache _permissionCache;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<BaseService<TEntity, TModel, TParam>> _logger;
 
-    protected BaseService(IDbActionExecutor executor, IPermissionCache permissionCache, IHttpContextAccessor httpContextAccessor)
+    protected BaseService(
+        IDbActionExecutor executor,
+        IPermissionCache permissionCache,
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<BaseService<TEntity, TModel, TParam>> logger)
     {
         _executor            = executor;
         _permissionCache     = permissionCache;
         _httpContextAccessor = httpContextAccessor;
+        _logger              = logger;
     }
 
     protected bool HandleResult<T>(DbResult<T> result, ServiceMessage sMessage)
@@ -97,7 +104,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         CheckPermission(PermParam(param, "View"), sMessage);
         if (sMessage.HasError) return default;
 
-        var result = await _executor.GetByIdAsync<TEntity>(param.Id!.Value);
+        if (param.Id is null) { sMessage += "Id là bắt buộc"; return default; }
+        var result = await _executor.GetByIdAsync<TEntity>(param.Id.Value);
         if (!HandleResult(result, sMessage)) return default;
         if (result.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return default; }
 
@@ -125,7 +133,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         CheckPermission(PermParam(param, "Edit"), sMessage);
         if (sMessage.HasError) return null;
 
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id!.Value, tracked: true);
+        if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
@@ -145,7 +154,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         CheckPermission(PermParam(param, "Delete"), sMessage);
         if (sMessage.HasError) return null;
 
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id!.Value, tracked: true);
+        if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
@@ -177,7 +187,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var data     = dataProp?.GetValue(param);
         if (data == null)
         {
-            Console.WriteLine("[AutoApplyUpdate] param.Data is NULL — skipping.");
+            _logger.LogWarning("[AutoApplyUpdate] param.Data is NULL — skipping.");
             return;
         }
 
