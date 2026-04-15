@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VegaBase.Core", "VegaBase.C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VegaBase.Service", "VegaBase.Service\VegaBase.Service.csproj", "{69978835-ED48-4A87-9BB2-873B8632FA3C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VegaBase.API", "VegaBase.API\VegaBase.API.csproj", "{065A679F-6F71-484C-9656-945A97616370}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,6 +43,18 @@ Global
 		{69978835-ED48-4A87-9BB2-873B8632FA3C}.Release|x64.Build.0 = Release|Any CPU
 		{69978835-ED48-4A87-9BB2-873B8632FA3C}.Release|x86.ActiveCfg = Release|Any CPU
 		{69978835-ED48-4A87-9BB2-873B8632FA3C}.Release|x86.Build.0 = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|x64.Build.0 = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Debug|x86.Build.0 = Debug|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|Any CPU.Build.0 = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|x64.ActiveCfg = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|x64.Build.0 = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|x86.ActiveCfg = Release|Any CPU
+		{065A679F-6F71-484C-9656-945A97616370}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
