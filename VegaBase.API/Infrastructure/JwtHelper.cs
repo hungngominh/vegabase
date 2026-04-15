@@ -12,7 +12,12 @@ public class JwtHelper : IJwtHelper
 {
     private readonly IConfiguration _config;
 
-    public JwtHelper(IConfiguration config) => _config = config;
+    public JwtHelper(IConfiguration config)
+    {
+        _config = config;
+        if (string.IsNullOrEmpty(config["JWT_SECRET"]))
+            throw new InvalidOperationException("JWT_SECRET is not configured.");
+    }
 
     public string GenerateToken(string username, IEnumerable<(string Code, Guid Id)> roles)
     {
@@ -31,7 +36,7 @@ public class JwtHelper : IJwtHelper
         var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JWT_SECRET"]!));
         var creds   = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expires = DateTime.UtcNow.AddHours(
-            double.Parse(_config["JWT_EXPIRY_HOURS"] ?? "24"));
+            double.Parse(_config["JWT_EXPIRY_HOURS"] ?? "24", System.Globalization.CultureInfo.InvariantCulture));
 
         var token = new JwtSecurityToken(
             issuer:             _config["JWT_ISSUER"],

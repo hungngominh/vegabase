@@ -20,6 +20,7 @@ public class ExceptionHandlingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        context.Request.EnableBuffering();
         try
         {
             await _next(context);
@@ -27,6 +28,13 @@ public class ExceptionHandlingMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception");
+
+            if (context.Response.HasStarted)
+            {
+                _logger.LogError(ex, "Exception after response started — cannot return 500");
+                throw;
+            }
+
             context.Response.StatusCode  = (int)HttpStatusCode.InternalServerError;
             context.Response.ContentType = "application/json";
             var response = ApiResponse<object>.Fail("Đã xảy ra lỗi không mong muốn.");
