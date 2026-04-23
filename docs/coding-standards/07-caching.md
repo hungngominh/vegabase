@@ -77,11 +77,11 @@ public class RoleModel
 }
 
 // ❌ Sai: cache model có sensitive data
-var cached = await _userCache.GetItem(userId, () => new UserCacheModel
+var cached = _userCache.GetItem(userId, _ => new UserCacheModel
 {
     Id = user.Id,
-    PasswordHash = user.PasswordHash, // không cache
-    RefreshToken = user.RefreshToken  // không cache
+    PasswordHash = user.PasswordHash, // không cache — vi phạm CA-04
+    RefreshToken = user.RefreshToken  // không cache — vi phạm CA-04
 });
 ```
 
