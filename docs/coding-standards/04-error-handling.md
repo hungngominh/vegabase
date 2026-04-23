@@ -17,14 +17,14 @@ Quy tắc xử lý lỗi trong VegaBase — phân biệt rõ business error vs i
 
 ```csharp
 // ✅ Đúng
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
     if (string.IsNullOrEmpty(param.Email))
         sMessage += "Email không được để trống.";
 }
 
 // ❌ Sai
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
     if (string.IsNullOrEmpty(param.Email))
         throw new ArgumentException("Email không được để trống.");
@@ -33,22 +33,26 @@ protected override async Task CheckAddCondition(User entity, UserParam param, Se
 
 ---
 
-## EH-02 — Tích lũy nhiều lỗi bằng `+=`, không return sớm sau lỗi đầu tiên
+## EH-02 — Không return sớm sau lỗi đầu tiên
+
+> **Lưu ý về ServiceMessage:** Toán tử `+=` chỉ lưu lỗi **đầu tiên** — nếu `sMessage.Value` đã có nội dung, các lỗi sau bị bỏ qua. Để trả về nhiều lỗi, nối thủ công: `sMessage.Value += (sMessage.HasError ? " | " : "") + "Lỗi tiếp theo.";`
 
 ```csharp
-// ✅ Đúng: thu thập tất cả lỗi
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+// ✅ Đúng: không return sớm để chạy hết tất cả validation
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
     if (string.IsNullOrEmpty(param.Email))
         sMessage += "Email không được để trống.";
     if (string.IsNullOrEmpty(param.Name))
-        sMessage += "Tên không được để trống.";
+        sMessage += "Tên không được để trống."; // chỉ lưu nếu Email chưa có lỗi
     if (param.Age < 18)
         sMessage += "Phải đủ 18 tuổi.";
+    // Để trả về nhiều lỗi cùng lúc, dùng:
+    // sMessage.Value += (sMessage.HasError ? " | " : "") + "Lỗi mới.";
 }
 
-// ❌ Sai: return sau lỗi đầu tiên, mất các lỗi còn lại
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+// ❌ Sai: return sau lỗi đầu tiên, các validation sau không được chạy
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
     if (string.IsNullOrEmpty(param.Email)) { sMessage += "Email trống."; return; }
     if (string.IsNullOrEmpty(param.Name)) { sMessage += "Tên trống."; return; }
