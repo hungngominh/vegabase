@@ -38,11 +38,11 @@ await _uow.SaveAsync(param.CallerUsername);
 ## DB-03 — Multi-entity operations phải dùng `IUnitOfWork` + `SaveAsync()`
 
 ```csharp
-// ✅ Đúng: atomic transaction
-_uow.Add(order);
-_uow.Add(orderItem);
-_uow.Add(payment);
-await _uow.SaveAsync(param.CallerUsername);
+// ✅ Đúng: atomic transaction (Add requires createdBy as 2nd argument)
+_uow.Add(order, param.CallerUsername);
+_uow.Add(orderItem, param.CallerUsername);
+_uow.Add(payment, param.CallerUsername);
+await _uow.SaveAsync();
 
 // ❌ Sai: 3 lần commit riêng biệt — không atomic
 await _db.AddAsync(order);
