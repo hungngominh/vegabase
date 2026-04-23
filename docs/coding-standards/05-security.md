@@ -4,16 +4,25 @@ Quy tắc bảo mật — password, JWT, authorization, và data exposure.
 
 ---
 
-## SEC-01 — Luôn kiểm tra permission qua `IPermissionCache.HasPermission()`
+## SEC-01 — Không hardcode role string để kiểm tra quyền
 
-Không tự kiểm tra role string bên trong service.
+`BaseService` tự động kiểm tra CRUD permission trước mỗi thao tác (View/Create/Edit/Delete). Trong các hook, dùng `CheckPermission()` cho custom permission check. `HasPermission()` là synchronous (không cần `await`).
 
 ```csharp
-// ✅ Đúng: kiểm tra qua permission cache
-var allowed = await _permCache.HasPermission(param.CallerRoleIds, "UserManagement", "create");
-if (!allowed) { sMessage += "Bạn không có quyền tạo người dùng."; return; }
+// ✅ Đúng: BaseService tự kiểm tra CRUD permission — không cần làm gì thêm cho Add/Edit/Delete/View
+// ✅ Trong hook, dùng CheckPermission() nếu cần check thêm:
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
+{
+    CheckPermission(PermParam(param, "create"), sMessage); // dùng protected helper
+    if (sMessage.HasError) return;
+    // ... logic khác
+}
 
-// ❌ Sai: so sánh role thủ công
+// ✅ Nếu inject IPermissionCache riêng (ngoài BaseService context):
+bool allowed = _permCache.HasPermission(param.CallerRoleIds, "UserManagement", "create"); // KHÔNG có await
+if (!allowed) { sMessage += "Bạn không có quyền."; return; }
+
+// ❌ Sai: so sánh role string thủ công — bypasses RBAC
 if (param.CallerRole != "admin") { sMessage += "Chỉ admin mới được tạo."; return; }
 ```
 
