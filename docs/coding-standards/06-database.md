@@ -8,7 +8,7 @@ Quy tắc thao tác với database — soft delete, audit, transaction, và prim
 
 ```csharp
 // ✅ Đúng: logical delete
-await _db.SoftDeleteAsync(entity, param.CallerUsername);
+await _executor.SoftDeleteAsync(entity, CallerUsername);
 
 // ❌ Sai: physical delete
 _context.Remove(entity);
@@ -23,14 +23,14 @@ await _context.SaveChangesAsync();
 
 ```csharp
 // ✅ Đúng: để infrastructure tự xử lý
-await _uow.Add(entity);
-await _uow.SaveAsync(param.CallerUsername);
+_uow.Add(entity, CallerUsername);   // void — không có await
+await _uow.SaveAsync();
 
-// ❌ Sai: set tay trong service
-entity.Log_CreatedBy = param.CallerUsername;
-entity.Log_CreatedDate = DateTimeOffset.UtcNow;
-await _uow.Add(entity);
-await _uow.SaveAsync(param.CallerUsername);
+// ❌ Sai: set tay trong service (infrastructure sẽ ghi đè các field này)
+entity.Log_CreatedBy = param.CallerUsername;  // thừa — infrastructure tự set
+entity.Log_CreatedDate = DateTimeOffset.UtcNow; // thừa — infrastructure tự set
+_uow.Add(entity, CallerUsername);
+await _uow.SaveAsync();
 ```
 
 ---
@@ -44,10 +44,10 @@ _uow.Add(orderItem, param.CallerUsername);
 _uow.Add(payment, param.CallerUsername);
 await _uow.SaveAsync();
 
-// ❌ Sai: 3 lần commit riêng biệt — không atomic
-await _db.AddAsync(order);
-await _db.AddAsync(orderItem);   // nếu lỗi ở đây, order đã được commit
-await _db.AddAsync(payment);
+// ❌ Sai: 3 lần commit riêng biệt — không atomic (mỗi call cũng thiếu createdBy)
+await _executor.AddAsync(order, CallerUsername);
+await _executor.AddAsync(orderItem, CallerUsername);   // nếu lỗi ở đây, order đã được commit
+await _executor.AddAsync(payment, CallerUsername);
 ```
 
 ---
@@ -56,7 +56,7 @@ await _db.AddAsync(payment);
 
 ```csharp
 // ✅ Đúng
-var result = await _db.AddAsync(entity);
+var result = await _executor.AddAsync(entity, CallerUsername);
 if (!result.IsSuccess) { sMessage += "Lỗi thêm dữ liệu."; return; }
 
 // ❌ Sai: thao tác DbContext trực tiếp
@@ -110,7 +110,7 @@ protected override IQueryable<User> ApplyFilter(IQueryable<User> query, UserPara
 ```csharp
 // ✅ Đúng: không gán Id (BaseEntity tự sinh UUIDv7)
 var entity = new User { Name = param.Name, Email = param.Email };
-await _db.AddAsync(entity);
+await _executor.AddAsync(entity, CallerUsername);
 
 // ❌ Sai: gán Id thủ công
 var entity = new User { Id = Guid.NewGuid(), Name = param.Name }; // UUIDv4, không phải v7
