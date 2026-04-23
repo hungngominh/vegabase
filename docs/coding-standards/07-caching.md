@@ -10,11 +10,11 @@ Cache phù hợp cho: lookup tables, permission lists, category lists, config va
 Cache không phù hợp cho: user data, search results, transactional data.
 
 ```csharp
-// ✅ Đúng: cache danh sách role (thay đổi hiếm)
-var roles = await _roleCache.GetAll(loader: () => _db.QueryAsync<Role>(...));
+// ✅ Đúng: cache danh sách role (GetAll là synchronous)
+var roles = _roleCache.GetAll(loader: () => LoadRolesFromDb());
 
-// ❌ Sai: cache kết quả tìm kiếm động
-var searchResults = await _productCache.GetItem(param.Keyword, loader: ...);
+// ❌ Sai: cache kết quả tìm kiếm động (không phù hợp dùng cache)
+var searchResults = _productCache.GetAll(loader: () => SearchProducts(param.Keyword));
 ```
 
 ---
@@ -42,17 +42,24 @@ public class RoleService
 ## CA-03 — Invalidate cache bằng cách override `OnChanged()`, không làm ở nơi khác
 
 ```csharp
-// ✅ Đúng: invalidate trong OnChanged
-protected override async Task OnChanged(Role entity, RoleParam param)
-{
-    await _cache.Invalidate(entity.Id);
-}
+// ✅ Đúng: OnChanged là synchronous, không có tham số. Invalidate là void.
+private Guid _lastChangedId;
 
-// ❌ Sai: invalidate bên trong ApplyUpdate hoặc CheckAddCondition
 protected override void ApplyUpdate(Role entity, RoleParam param)
 {
-    entity.Name = param.Name;
-    _cache.Invalidate(entity.Id).GetAwaiter().GetResult(); // sai chỗ + blocking async
+    _lastChangedId = entity.Id; // lưu Id để dùng trong OnChanged
+    AutoApplyUpdate(entity, param);
+}
+
+protected override void OnChanged()
+{
+    _cache.Invalidate(_lastChangedId);
+}
+
+// ❌ Sai: OnChanged không có tham số, không phải async
+protected override async Task OnChanged(Role entity, RoleParam param)
+{
+    await _cache.Invalidate(entity.Id); // compile error
 }
 ```
 
@@ -84,17 +91,25 @@ var cached = await _userCache.GetItem(userId, () => new UserCacheModel
 
 ```csharp
 // ✅ Đúng: invalidate permission cache chỉ khi role permission thay đổi
-// Trong RolePermissionService.OnChanged()
-protected override async Task OnChanged(RolePermission entity, RolePermissionParam param)
+// Trong RolePermissionService — lưu RoleId trước, dùng trong OnChanged
+private Guid _lastRoleId;
+
+protected override void ApplyUpdate(RolePermission entity, RolePermissionParam param)
 {
-    await _permCache.Invalidate(entity.RoleId);
+    _lastRoleId = entity.RoleId;
+    AutoApplyUpdate(entity, param);
 }
 
-// ❌ Sai: invalidate permission cache khi user thay đổi (không liên quan)
-// Trong UserService.OnChanged()
-protected override async Task OnChanged(User entity, UserParam param)
+protected override void OnChanged()
 {
-    await _permCache.InvalidateAll(); // quá rộng, tốn kém
+    _permCache.Invalidate(_lastRoleId);
+}
+
+// ❌ Sai: không nên InvalidateAll permission cache khi user thay đổi (không liên quan)
+// Trong UserService:
+protected override void OnChanged()
+{
+    _permCache.InvalidateAll(); // quá rộng — xóa permission cache của tất cả roles
 }
 ```
 
@@ -103,14 +118,14 @@ protected override async Task OnChanged(User entity, UserParam param)
 ## CA-06 — Cache là optimization — logic phải đúng kể cả khi cache trống
 
 ```csharp
-// ✅ Đúng: loader function luôn có thể fetch từ DB nếu cache miss
-var role = await _cache.GetItem(roleId, loader: async () =>
+// ✅ Đúng: GetItem là synchronous, loader nhận TKey làm tham số
+var role = _cache.GetItem(roleId, loader: key =>
 {
-    var result = await _db.GetByIdAsync<Role>(roleId);
-    return result.IsSuccess ? MapToModel(result.Data) : null;
+    var result = _executor.GetByIdAsync<Role>(key).GetAwaiter().GetResult();
+    return result.IsSuccess ? MapToModel(result.Data!) : null;
 });
 
 // ❌ Sai: assume cache luôn có data, không có fallback
-var role = _cache.TryGet(roleId); // trả null nếu cache trống
-var roleName = role.Name;         // NullReferenceException khi cache bị clear
+var role = _cache.GetItem(roleId, loader: _ => null); // loader trả null → cache miss không được xử lý
+var roleName = role!.Name; // NullReferenceException khi cache trống
 ```
