@@ -93,7 +93,7 @@ Các field audit trên entity phải có prefix `Log_` để phân biệt với 
 ```csharp
 // ✅ Đúng
 public DateTimeOffset Log_CreatedDate { get; set; }
-public string? Log_CreatedBy { get; set; }
+public string Log_CreatedBy { get; set; } = string.Empty;
 public DateTimeOffset? Log_UpdatedDate { get; set; }
 public string? Log_UpdatedBy { get; set; }
 
