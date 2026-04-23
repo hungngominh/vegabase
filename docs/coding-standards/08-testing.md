@@ -14,18 +14,27 @@ Quy tắc viết test cho VegaBase — scope, structure, và naming.
 ## TS-01 — Unit test tập trung vào business logic hooks
 
 ```csharp
-// ✅ Đúng: test CheckAddCondition với scenario cụ thể
+// ✅ Đúng: test CheckAddCondition qua subclass (protected method cần test subclass để expose)
+// Tạo TestableUserService trong test project:
+internal class TestableUserService : UserService
+{
+    public Task TestCheckAddCondition(UserParam param, ServiceMessage sMessage)
+        => CheckAddCondition(param, sMessage);
+}
+
 [Fact]
 public async Task CheckAddCondition_DuplicateEmail_AddsErrorToMessage()
 {
     // Arrange
-    var service = new UserService(mockDb.Object, mockPermCache.Object);
+    var mockExecutor = new Mock<IDbActionExecutor>();
+    mockExecutor.Setup(d => d.QueryAsync<User>(It.IsAny<Func<IQueryable<User>, IQueryable<User>>>()))
+                .ReturnsAsync(DbResult<List<User>>.Success(existingUsers, TimeSpan.Zero));
+    var service = new TestableUserService(mockExecutor.Object, ...);
     var param = new UserParam { Email = "existing@example.com" };
     var sMessage = new ServiceMessage();
-    mockDb.Setup(d => d.QueryAsync<User>(...)).ReturnsAsync(DbResult<List<User>>.Ok(existingUsers));
 
     // Act
-    await service.InvokeCheckAddCondition(new User(), param, sMessage);
+    await service.TestCheckAddCondition(param, sMessage);
 
     // Assert
     Assert.True(sMessage.HasError);
