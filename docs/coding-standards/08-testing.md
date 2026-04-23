@@ -84,7 +84,7 @@ public class UserDbTests : IAsyncLifetime
 // ❌ Sai: mock DbActionExecutor trong integration test
 var mockDb = new Mock<IDbActionExecutor>();
 mockDb.Setup(d => d.AddAsync(It.IsAny<User>()))
-      .ReturnsAsync(DbResult<User>.Ok(new User()));
+      .ReturnsAsync(DbResult<User>.Success(new User(), TimeSpan.Zero));
 // → test này không kiểm tra được DB behavior thực sự
 ```
 

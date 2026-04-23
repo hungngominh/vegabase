@@ -204,13 +204,13 @@ public class UserController : ControllerBase
 ## BC-10 — Dùng `RefineListData` cho enrichment sau load, không query N+1 trong ApplyFilter
 
 ```csharp
-// ✅ Đúng: batch load related data sau khi có danh sách
-protected override async Task RefineListData(List<UserModel> models, UserParam param)
+// ✅ Đúng: batch load related data sau khi có danh sách (GetAll là synchronous)
+protected override Task RefineListData(List<UserModel> models, UserParam param, ServiceMessage sMessage)
 {
-    var roleIds = models.Select(m => m.RoleId).Distinct().ToList();
-    var roles = await _roleCache.GetAll();
+    var roles = _roleCache.GetAll(() => LoadAllRoles());
     foreach (var m in models)
         m.RoleName = roles.FirstOrDefault(r => r.Id == m.RoleId)?.Name;
+    return Task.CompletedTask;
 }
 
 // ❌ Sai: query trong vòng lặp trong RefineListData gây N+1
