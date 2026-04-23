@@ -65,7 +65,7 @@ protected override async Task CheckAddCondition(UserParam param, ServiceMessage 
 
 ```csharp
 // ✅ Đúng
-var result = await _db.AddAsync(entity);
+var result = await _executor.AddAsync(entity, CallerUsername);
 if (!result.IsSuccess)
 {
     sMessage += result.Error?.ToString() ?? "Lỗi khi thêm dữ liệu.";
@@ -74,7 +74,7 @@ if (!result.IsSuccess)
 var saved = result.Data;
 
 // ❌ Sai: dùng Data mà không kiểm tra IsSuccess
-var result = await _db.AddAsync(entity);
+var result = await _executor.AddAsync(entity, CallerUsername);
 var saved = result.Data; // NullReferenceException nếu IsSuccess = false
 ```
 

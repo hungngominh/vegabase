@@ -74,7 +74,7 @@ public class UserDbTests : IAsyncLifetime
         var executor = new DbActionExecutor(_context, NullLogger<DbActionExecutor>.Instance);
         var user = new User { Name = "Test", Email = "test@example.com" };
 
-        var result = await executor.AddAsync(user);
+        var result = await executor.AddAsync(user, "test-runner");
 
         Assert.True(result.IsSuccess);
         Assert.NotEqual(Guid.Empty, result.Data.Id);
