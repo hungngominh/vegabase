@@ -72,10 +72,10 @@ public async Task<IActionResult> GetListAsync(HttpContext ctx, UserParam param) 
 
 ```csharp
 // ✅ Đúng: validation trong CheckAddCondition (Service layer)
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
-    var exists = await _db.QueryAsync<User>(q => q.Where(u => u.Email == param.Email));
-    if (exists.IsSuccess && exists.Data.Any())
+    var exists = await _executor.QueryAsync<User>(q => q.Where(u => u.Email == param.Email && !u.IsDeleted));
+    if (exists.IsSuccess && exists.Data!.Any())
         sMessage += "Email đã tồn tại.";
 }
 
