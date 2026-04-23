@@ -67,15 +67,15 @@ protected override IQueryable<User> ApplyFilter(IQueryable<User> query, UserPara
 ## BC-04 — Dùng `CheckAddCondition` cho business validation trước insert
 
 ```csharp
-// ✅ Đúng
-protected override async Task CheckAddCondition(User entity, UserParam param, ServiceMessage sMessage)
+// ✅ Đúng: 2 tham số (param, sMessage) — không có entity
+protected override async Task CheckAddCondition(UserParam param, ServiceMessage sMessage)
 {
-    var result = await _db.QueryAsync<User>(q => q.Where(u => u.Email == entity.Email && !u.IsDeleted));
-    if (result.IsSuccess && result.Data.Any())
+    var result = await _executor.QueryAsync<User>(q => q.Where(u => u.Email == param.Email && !u.IsDeleted));
+    if (result.IsSuccess && result.Data!.Any())
         sMessage += "Email đã được sử dụng.";
 }
 
-// ❌ Sai: override Add() để validate
+// ❌ Sai: override Add() để validate, và dùng 3 tham số (entity không tồn tại ở đây)
 public override async Task Add(UserParam param, ServiceMessage sMessage)
 {
     if (param.Email == "admin@example.com") { sMessage += "Email không hợp lệ."; return; }
@@ -87,18 +87,33 @@ public override async Task Add(UserParam param, ServiceMessage sMessage)
 
 ## BC-05 — Dùng `OnChanged` để invalidate cache sau write
 
-```csharp
-// ✅ Đúng
-protected override async Task OnChanged(User entity, UserParam param)
-{
-    await _userCache.Invalidate(entity.Id);
-}
+`OnChanged()` không có tham số và là synchronous. Để biết entity nào vừa thay đổi, lưu Id vào field trước khi hook được gọi.
 
-// ❌ Sai: invalidate bên trong ApplyUpdate
+```csharp
+// ✅ Đúng: lưu Id trong ApplyUpdate, dùng trong OnChanged
+private Guid _lastChangedId;
+
 protected override void ApplyUpdate(User entity, UserParam param)
 {
-    entity.Name = param.Name;
-    _userCache.Invalidate(entity.Id).GetAwaiter().GetResult(); // sai chỗ, sai cách
+    _lastChangedId = entity.Id;
+    AutoApplyUpdate(entity, param);
+}
+
+protected override void OnChanged()
+{
+    _userCache.Invalidate(_lastChangedId);
+}
+
+// ✅ Cũng đúng nếu không cần Id cụ thể
+protected override void OnChanged()
+{
+    _userCache.InvalidateAll();
+}
+
+// ❌ Sai: OnChanged không có tham số, không phải async
+protected override async Task OnChanged(User entity, UserParam param)
+{
+    await _userCache.Invalidate(entity.Id); // compile error
 }
 ```
 
@@ -106,8 +121,10 @@ protected override void ApplyUpdate(User entity, UserParam param)
 
 ## BC-06 — Dùng `param.HasField("FieldName")` cho partial update
 
+> **Lưu ý:** `HasField` trả về `true` khi `UpdatedFields` rỗng (tức là trong các call `Add` thông thường, mọi field đều được coi là "có mặt"). `HasField` chỉ lọc khi `UpdatedFields` được populate — điều này xảy ra tự động qua endpoint `UpdateField`.
+
 ```csharp
-// ✅ Đúng: chỉ update field được gửi lên
+// ✅ Đúng: chỉ update field được gửi lên (qua UpdateField endpoint)
 protected override void ApplyUpdate(User entity, UserParam param)
 {
     if (param.HasField("Name")) entity.Name = param.Name;
@@ -196,10 +213,13 @@ protected override async Task RefineListData(List<UserModel> models, UserParam p
         m.RoleName = roles.FirstOrDefault(r => r.Id == m.RoleId)?.Name;
 }
 
-// ❌ Sai: query trong ApplyFilter gây N+1
-protected override IQueryable<User> ApplyFilter(IQueryable<User> query, UserParam param)
+// ❌ Sai: query trong vòng lặp trong RefineListData gây N+1
+protected override async Task RefineListData(List<UserModel> models, UserParam param, ServiceMessage sMessage)
 {
-    return query.Include(u => u.Role).Include(u => u.Department); // có thể dùng Include
-    // nhưng không gọi query thêm trong vòng lặp bên trong filter
+    foreach (var m in models) // N+1: 1 query per item
+    {
+        var roleResult = await _executor.GetByIdAsync<Role>(m.RoleId);
+        m.RoleName = roleResult.Data?.Name;
+    }
 }
 ```
