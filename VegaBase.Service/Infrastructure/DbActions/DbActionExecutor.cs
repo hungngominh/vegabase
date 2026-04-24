@@ -141,6 +141,7 @@ public class DbActionExecutor : IDbActionExecutor
         {
             entity.Log_UpdatedBy = updatedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
+            _db.Entry(entity).State = EntityState.Modified;
             await _db.SaveChangesAsync();
             sw.Stop();
             _logger.LogInformation(
@@ -169,6 +170,7 @@ public class DbActionExecutor : IDbActionExecutor
             entity.IsDeleted = true;
             entity.Log_UpdatedBy = deletedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
+            _db.Entry(entity).State = EntityState.Modified;
             await _db.SaveChangesAsync();
             sw.Stop();
             _logger.LogInformation(
