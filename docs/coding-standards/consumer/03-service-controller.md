@@ -105,28 +105,31 @@ protected override IQueryable<Vehicle> ApplyFilter(IQueryable<Vehicle> query, Ve
 **Khi cần async cross-table filter** → override `GetListCore` thay vì nhét `await` vào `ApplyFilter`:
 
 ```csharp
-protected override async Task<List<VehicleModel>> GetListCore(VehicleParam param, ServiceMessage sMessage)
+protected override async Task<List<VehicleModel>> GetListCore(VehicleParam param, ServiceMessage sMessage, CancellationToken ct = default)
 {
     CheckPermission(PermParam(param, "View"), sMessage);
     if (sMessage.HasError) return [];
 
     // async pre-fetch cross-table
     var specIds = (await _executor.QueryAsync<VehicleSpec>(q =>
-        q.Where(s => s.FuelTypeCode == param.FuelTypeCode)))
+        q.Where(s => !s.IsDeleted && s.FuelTypeCode == param.FuelTypeCode), ct: ct))
         .Data!.Select(s => s.VehicleId).ToHashSet();
 
     var result = await _executor.QueryAsync<Vehicle>(q =>
     {
-        var filtered = ApplyFilter(q, param)
+        // BẮT BUỘC: áp dụng !IsDeleted trước — base không re-apply khi override GetListCore
+        var filtered = ApplyFilter(q.Where(v => !v.IsDeleted), param)
             .Where(v => specIds.Contains(v.Id));
         param.TotalCount = filtered.Count();
         return filtered.Skip((param.Page - 1) * param.PageSize).Take(param.PageSize);
-    });
+    }, ct: ct);
 
     if (!HandleResult(result, sMessage)) return [];
     return result.Data!.Select(ConvertToModel).ToList();
 }
 ```
+
+> **Quan trọng:** Khi override `GetListCore`, bạn phải tự apply `q.Where(e => !e.IsDeleted)` trước `ApplyFilter`. Base implementation làm điều này tự động, nhưng override hoàn toàn thay thế nó.
 
 ---
 

@@ -129,3 +129,27 @@ var role = await _cache.GetItemAsync(roleId, loaderAsync: async key =>
 var role = await _cache.GetItemAsync(roleId, loaderAsync: _ => Task.FromResult<RoleModel?>(null));
 var roleName = role!.Name; // NullReferenceException khi cache trống
 ```
+
+---
+
+## CA-07 — Cache không có TTL — consumer chịu trách nhiệm invalidate khi data thay đổi
+
+`MemoryCacheStore` (và `PermissionCache`) **không có TTL**. Entry tồn tại trong bộ nhớ cho đến khi process restart hoặc gọi `Invalidate`/`InvalidateAll` tường minh.
+
+**Hệ quả:**
+- Nếu data thay đổi trong DB mà không gọi invalidate → cache sẽ trả dữ liệu cũ vô thời hạn.
+- Đặc biệt nghiêm trọng với `PermissionCache`: quyền của role bị thu hồi trong DB nhưng user vẫn được phép cho đến khi service restart hoặc cache được flush.
+
+**Quy tắc:** Bất kỳ service nào modify data được cache → phải override `OnChanged()` và gọi `Invalidate` hoặc `InvalidateAll`.
+
+```csharp
+// ✅ Đúng: service sửa permission → invalidate PermissionCache
+protected override void OnChanged()
+{
+    _permCache.Invalidate(_lastRoleId);   // xóa 1 role
+    // hoặc: _permCache.InvalidateAll();  // xóa toàn bộ nếu không biết roleId
+}
+
+// ❌ Sai: không invalidate — quyền cũ tiếp tục được cấp
+protected override void OnChanged() { }   // no-op sau khi sửa permission
+```

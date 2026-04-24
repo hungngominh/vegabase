@@ -10,6 +10,8 @@ Quy tắc bảo mật — password, JWT, authorization, và data exposure.
 
 > **Thứ tự kiểm tra trong `CheckPermission` (V1):** Admin bypass (`CallerRole == "admin"`) được kiểm tra **trước** `ScreenCode`. Admin luôn được phép qua kể cả khi `ScreenCode` chưa cấu hình. `ScreenCode` rỗng chỉ block non-admin.
 
+> **Valid actions:** `IPermissionCache.HasPermission` chỉ nhận 4 action string: `"view"`, `"create"`, `"edit"`, `"delete"` (case-insensitive). Bất kỳ string nào khác (ví dụ `"read"`, `"modify"`) luôn trả `false` (silent deny). Dùng đúng 4 tên này khi gọi `PermParam(param, action)` hoặc `HasPermission(roleIds, screen, action)`.
+
 ```csharp
 // ✅ Đúng: BaseService tự kiểm tra CRUD permission — không cần làm gì thêm cho Add/Edit/Delete/View
 // ✅ Trong hook, dùng CheckPermission() nếu cần check thêm:
