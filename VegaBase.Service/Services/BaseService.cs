@@ -59,13 +59,13 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected void CheckPermission(PermissionCheckParam param, ServiceMessage sMessage)
     {
+        if (string.Equals(param.CallerRole, "admin", StringComparison.OrdinalIgnoreCase)) return;
+
         if (string.IsNullOrEmpty(ScreenCode))
         {
             sMessage += "Màn hình chưa được cấu hình (ScreenCode trống)";
             return;
         }
-
-        if (string.Equals(param.CallerRole, "admin", StringComparison.OrdinalIgnoreCase)) return;
 
         if (!_permissionCache.HasPermission(param.CallerRoleIds, ScreenCode, param.Action))
             sMessage += $"Bạn không có quyền thực hiện thao tác này " +
@@ -280,7 +280,15 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
                 continue;
             }
 
-            dst.SetValue(entity, src.GetValue(data));
+            var directVal = src.GetValue(data);
+            if (directVal == null && dst.PropertyType.IsValueType &&
+                Nullable.GetUnderlyingType(dst.PropertyType) == null)
+            {
+                _logger.LogWarning("[AutoApplyUpdate] Skipping {Prop}: null value cannot be set on non-nullable destination type {DstType}",
+                    src.Name, dst.PropertyType.Name);
+                continue;
+            }
+            dst.SetValue(entity, directVal);
             changed = true;
         }
         return changed;

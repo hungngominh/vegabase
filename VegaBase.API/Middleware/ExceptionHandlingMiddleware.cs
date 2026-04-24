@@ -68,7 +68,7 @@ public class ExceptionHandlingMiddleware
 
             if (context.Response.HasStarted)
             {
-                _logger.LogError(ex, "Exception after response started — cannot return 500 [TraceId={TraceId}]", traceId);
+                _logger.LogWarning("Response already started — cannot write 500 [TraceId={TraceId}]", traceId);
                 throw;
             }
 
