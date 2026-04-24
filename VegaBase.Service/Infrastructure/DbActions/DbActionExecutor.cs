@@ -1,5 +1,6 @@
 // VegaBase.Service/Infrastructure/DbActions/DbActionExecutor.cs
 using System.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -11,12 +12,27 @@ public class DbActionExecutor : IDbActionExecutor
 {
     private readonly DbContext _db;
     private readonly ILogger<DbActionExecutor> _logger;
+    private readonly IHttpContextAccessor? _httpContextAccessor;
 
+    /// <summary>
+    /// Preferred constructor — includes <see cref="IHttpContextAccessor"/> for request correlation IDs in logs.
+    /// </summary>
+    public DbActionExecutor(DbContext db, ILogger<DbActionExecutor> logger, IHttpContextAccessor httpContextAccessor)
+    {
+        _db = db;
+        _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    /// <summary>Fallback constructor for consumers that do not register IHttpContextAccessor.</summary>
     public DbActionExecutor(DbContext db, ILogger<DbActionExecutor> logger)
     {
         _db = db;
         _logger = logger;
     }
+
+    private string TraceId =>
+        _httpContextAccessor?.HttpContext?.TraceIdentifier ?? string.Empty;
 
     public async Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false, bool includeDeleted = false, CancellationToken ct = default)
         where TEntity : BaseEntity
@@ -30,16 +46,16 @@ public class DbActionExecutor : IDbActionExecutor
             var entity = await query.FirstOrDefaultAsync(e => e.Id == id, ct);
             sw.Stop();
             _logger.LogDebug(
-                "[DbAction] GetById {EntityType} {EntityId} {Status} in {DurationMs}ms",
-                typeof(TEntity).Name, id, entity != null ? "found" : "not_found", sw.ElapsedMilliseconds);
+                "[DbAction] GetById {EntityType} {EntityId} {Status} in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, id, entity != null ? "found" : "not_found", sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity?>.Success(entity, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] GetById {EntityType} {EntityId} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, id, sw.ElapsedMilliseconds);
+                "[DbAction] GetById {EntityType} {EntityId} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity?>.Failure(MapException(ex, "GetById"), sw.Elapsed);
         }
     }
@@ -59,16 +75,16 @@ public class DbActionExecutor : IDbActionExecutor
             var results = await query.ToListAsync(ct);
             sw.Stop();
             _logger.LogDebug(
-                "[DbAction] Query {EntityType} returned {Count} rows in {DurationMs}ms",
-                typeof(TEntity).Name, results.Count, sw.ElapsedMilliseconds);
+                "[DbAction] Query {EntityType} returned {Count} rows in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, results.Count, sw.ElapsedMilliseconds, TraceId);
             return DbResult<List<TEntity>>.Success(results, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] Query {EntityType} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, sw.ElapsedMilliseconds);
+                "[DbAction] Query {EntityType} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, sw.ElapsedMilliseconds, TraceId);
             return DbResult<List<TEntity>>.Failure(MapException(ex, "Query"), sw.Elapsed);
         }
     }
@@ -77,7 +93,7 @@ public class DbActionExecutor : IDbActionExecutor
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
-        _logger.LogDebug("[DbAction] Add {EntityType} started by {User}", typeof(TEntity).Name, createdBy);
+        _logger.LogDebug("[DbAction] Add {EntityType} started by {User} TraceId={TraceId}", typeof(TEntity).Name, createdBy, TraceId);
         try
         {
             entity.Log_CreatedBy = createdBy;
@@ -86,48 +102,57 @@ public class DbActionExecutor : IDbActionExecutor
             await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] Add {EntityType} {EntityId} OK in {DurationMs}ms",
-                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds);
+                "[DbAction] Add {EntityType} {EntityId} OK in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity>.Success(entity, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] Add {EntityType} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, sw.ElapsedMilliseconds);
+                "[DbAction] Add {EntityType} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity>.Failure(MapException(ex, "Add"), sw.Elapsed);
         }
     }
+
+    /// <summary>Maximum entities inserted per <see cref="SaveChangesAsync"/> call to avoid oversized transactions.</summary>
+    public const int AddRangeChunkSize = 500;
 
     public async Task<DbResult<List<TEntity>>> AddRangeAsync<TEntity>(List<TEntity> entities, string createdBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
-        _logger.LogDebug("[DbAction] AddRange {EntityType} x{Count} started by {User}",
-            typeof(TEntity).Name, entities.Count, createdBy);
+        _logger.LogDebug("[DbAction] AddRange {EntityType} x{Count} started by {User} TraceId={TraceId}",
+            typeof(TEntity).Name, entities.Count, createdBy, TraceId);
         try
         {
             var now = DateTimeOffset.UtcNow;
             foreach (var entity in entities)
             {
-                entity.Log_CreatedBy = createdBy;
+                entity.Log_CreatedBy   = createdBy;
                 entity.Log_CreatedDate = now;
             }
-            _db.Set<TEntity>().AddRange(entities);
-            await _db.SaveChangesAsync(ct);
+
+            for (var i = 0; i < entities.Count; i += AddRangeChunkSize)
+            {
+                var chunk = entities.GetRange(i, Math.Min(AddRangeChunkSize, entities.Count - i));
+                _db.Set<TEntity>().AddRange(chunk);
+                await _db.SaveChangesAsync(ct);
+            }
+
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] AddRange {EntityType} x{Count} OK in {DurationMs}ms",
-                typeof(TEntity).Name, entities.Count, sw.ElapsedMilliseconds);
+                "[DbAction] AddRange {EntityType} x{Count} OK in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entities.Count, sw.ElapsedMilliseconds, TraceId);
             return DbResult<List<TEntity>>.Success(entities, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] AddRange {EntityType} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, sw.ElapsedMilliseconds);
+                "[DbAction] AddRange {EntityType} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, sw.ElapsedMilliseconds, TraceId);
             return DbResult<List<TEntity>>.Failure(MapException(ex, "AddRange"), sw.Elapsed);
         }
     }
@@ -136,8 +161,8 @@ public class DbActionExecutor : IDbActionExecutor
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
-        _logger.LogDebug("[DbAction] Update {EntityType} {EntityId} started by {User}",
-            typeof(TEntity).Name, entity.Id, updatedBy);
+        _logger.LogDebug("[DbAction] Update {EntityType} {EntityId} started by {User} TraceId={TraceId}",
+            typeof(TEntity).Name, entity.Id, updatedBy, TraceId);
         try
         {
             entity.Log_UpdatedBy = updatedBy;
@@ -146,16 +171,16 @@ public class DbActionExecutor : IDbActionExecutor
             await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] Update {EntityType} {EntityId} OK in {DurationMs}ms",
-                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds);
+                "[DbAction] Update {EntityType} {EntityId} OK in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity>.Success(entity, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] Update {EntityType} {EntityId} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds);
+                "[DbAction] Update {EntityType} {EntityId} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<TEntity>.Failure(MapException(ex, "Update"), sw.Elapsed);
         }
     }
@@ -164,8 +189,8 @@ public class DbActionExecutor : IDbActionExecutor
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
-        _logger.LogDebug("[DbAction] SoftDelete {EntityType} {EntityId} started by {User}",
-            typeof(TEntity).Name, entity.Id, deletedBy);
+        _logger.LogDebug("[DbAction] SoftDelete {EntityType} {EntityId} started by {User} TraceId={TraceId}",
+            typeof(TEntity).Name, entity.Id, deletedBy, TraceId);
         try
         {
             entity.IsDeleted = true;
@@ -175,16 +200,16 @@ public class DbActionExecutor : IDbActionExecutor
             await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] SoftDelete {EntityType} {EntityId} OK in {DurationMs}ms",
-                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds);
+                "[DbAction] SoftDelete {EntityType} {EntityId} OK in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<bool>.Success(true, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] SoftDelete {EntityType} {EntityId} FAILED in {DurationMs}ms",
-                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds);
+                "[DbAction] SoftDelete {EntityType} {EntityId} FAILED in {DurationMs}ms TraceId={TraceId}",
+                typeof(TEntity).Name, entity.Id, sw.ElapsedMilliseconds, TraceId);
             return DbResult<bool>.Failure(MapException(ex, "SoftDelete"), sw.Elapsed);
         }
     }
@@ -201,8 +226,8 @@ public class DbActionExecutor : IDbActionExecutor
             await transaction.CommitAsync(ct);
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] Transaction {Operation} completed in {DurationMs}ms",
-                operationName, sw.ElapsedMilliseconds);
+                "[DbAction] Transaction {Operation} completed in {DurationMs}ms TraceId={TraceId}",
+                operationName, sw.ElapsedMilliseconds, TraceId);
             return DbResult<T>.Success(result, sw.Elapsed);
         }
         catch (Exception ex)
@@ -210,8 +235,8 @@ public class DbActionExecutor : IDbActionExecutor
             await transaction.RollbackAsync(ct);
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms",
-                operationName, sw.ElapsedMilliseconds);
+                "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms TraceId={TraceId}",
+                operationName, sw.ElapsedMilliseconds, TraceId);
             return DbResult<T>.Failure(MapException(ex, "Transaction"), sw.Elapsed);
         }
     }
