@@ -58,6 +58,27 @@ dotnet build
 dotnet run --project VegaBase.API
 ```
 
+### Graph Codebase — AI tooling (contributor)
+
+Repo tích hợp [code-review-graph](https://github.com/nicholaspretorius/code-review-graph) để cung cấp knowledge graph cho Claude Code. Claude sẽ hiểu quan hệ giữa các class/method và tránh viết code trùng lặp.
+
+**Cài lần đầu (chỉ cần một lần):**
+
+```bash
+python -m pip install code-review-graph
+python -m code_review_graph build --repo .
+```
+
+Sau đó **restart Claude Code** — MCP server tự kích hoạt nhờ `.mcp.json` đã có trong repo.
+
+**Cập nhật graph** khi merge code mới về:
+
+```bash
+python -m code_review_graph build --repo .
+```
+
+> Hook `PostToolUse` trong `.claude/settings.json` tự cập nhật graph sau mỗi lần Claude sửa file, nên bình thường không cần chạy tay.
+
 ## Ví dụ sử dụng
 
 Định nghĩa một entity + service + controller cho domain mới:
