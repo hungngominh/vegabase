@@ -183,6 +183,8 @@ protected override bool ApplyUpdate(User entity, UserParam param)
 }
 ```
 
+> **Hành vi null (N2):** Khi `param.Data` có field nullable (ví dụ `int?`) mang giá trị `null` mà entity property tương ứng là non-nullable (`int`), `AutoApplyUpdate` sẽ **bỏ qua field đó** và log warning thay vì throw `ArgumentException`. Đây là chủ ý — khai báo đúng kiểu nullable/non-nullable ở cả hai phía để tránh mất data ngoài ý muốn.
+
 ---
 
 ## BC-09 — Controller phải kế thừa `BaseController<TService, TModel, TParam>`

@@ -14,7 +14,7 @@ public class PermissionCache
 
         var screens = permissions
             .Where(p => !string.IsNullOrEmpty(p.ScreenCode))
-            .GroupBy(p => p.ScreenCode)
+            .GroupBy(p => p.ScreenCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 g => g.Key,
                 g =>
@@ -26,10 +26,11 @@ public class PermissionCache
                         CanEdit   = g.Any(p => p.CanEdit),
                         CanDelete = g.Any(p => p.CanDelete),
                     };
-                });
+                },
+                StringComparer.OrdinalIgnoreCase);
 
         var snapshot = new RolePermissionCache { RoleId = roleId, Screens = screens };
-        _store.AddOrUpdate(roleId, snapshot, (_, _) => snapshot);
+        _store.AddOrUpdate(roleId, snapshot, (_, existing) => overwrite ? snapshot : existing);
 
         return Task.CompletedTask;
     }

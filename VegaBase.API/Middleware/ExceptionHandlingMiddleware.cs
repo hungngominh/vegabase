@@ -52,6 +52,12 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException)
+            {
+                _logger.LogInformation("Request cancelled by client [TraceId={TraceId}]", context.TraceIdentifier);
+                return;
+            }
+
             var traceId      = context.TraceIdentifier;
             var rawMessage   = ex.Message;
             var safeMessage  = SanitizeLogMessage != null
@@ -62,7 +68,7 @@ public class ExceptionHandlingMiddleware
 
             if (context.Response.HasStarted)
             {
-                _logger.LogError(ex, "Exception after response started — cannot return 500 [TraceId={TraceId}]", traceId);
+                _logger.LogWarning("Response already started — cannot write 500 [TraceId={TraceId}]", traceId);
                 throw;
             }
 

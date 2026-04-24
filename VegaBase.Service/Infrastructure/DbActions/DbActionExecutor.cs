@@ -127,6 +127,12 @@ public class DbActionExecutor : IDbActionExecutor
             typeof(TEntity).Name, entities.Count, createdBy, TraceId);
         try
         {
+            if (entities.Count == 0)
+            {
+                sw.Stop();
+                return DbResult<List<TEntity>>.Success(entities, sw.Elapsed);
+            }
+
             var now = DateTimeOffset.UtcNow;
             foreach (var entity in entities)
             {
@@ -251,7 +257,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync(ct);
+            await transaction.RollbackAsync(CancellationToken.None);
             sw.Stop();
             _logger.LogError(ex,
                 "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms TraceId={TraceId}",
@@ -302,6 +308,13 @@ public class DbActionExecutor : IDbActionExecutor
                 InnerException = ex, EntityName = entityName, ActionName = actionName
             };
         }
+
+        if (ex is OperationCanceledException)
+            return new DbError
+            {
+                Type = DbErrorType.Cancelled, Message = "Operation was cancelled.",
+                InnerException = ex, EntityName = entityName, ActionName = actionName
+            };
 
         if (ex is DbUpdateConcurrencyException)
             return new DbError

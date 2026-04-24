@@ -8,7 +8,7 @@ public class RolePermissionCache
     public Guid RoleId { get; init; }
 
     /// <summary>Key: screenCode — Value: allowed actions</summary>
-    public Dictionary<string, ScreenActions> Screens { get; init; } = new();
+    public Dictionary<string, ScreenActions> Screens { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class ScreenActions

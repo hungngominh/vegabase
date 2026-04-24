@@ -56,8 +56,11 @@ public class JwtHelper : IJwtHelper
             new(ClaimTypes.Name, username),
         };
 
+        var roleClaims   = 0;
+        var hadAnyRoles  = false;
         foreach (var (code, id) in roles)
         {
+            hadAnyRoles = true;
             if (string.IsNullOrEmpty(code) || id == Guid.Empty)
             {
                 _logger.LogWarning("[JwtHelper] Skipping invalid role entry: code='{Code}' id={Id}", code, id);
@@ -66,7 +69,11 @@ public class JwtHelper : IJwtHelper
             claims.Add(new Claim("roleCode",      code));
             claims.Add(new Claim("roleId",        id.ToString()));
             claims.Add(new Claim(ClaimTypes.Role, code));
+            roleClaims++;
         }
+
+        if (roleClaims == 0 && hadAnyRoles)
+            _logger.LogError("[JwtHelper] All role entries were invalid — token will have no role claims for user '{Username}'", username);
 
         var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JWT_SECRET"]!));
         var creds   = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

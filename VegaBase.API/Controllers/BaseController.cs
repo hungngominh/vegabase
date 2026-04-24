@@ -82,6 +82,12 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     /// <summary>
     /// Partial update. Route id wins over any id in the request body (D12).
     /// </summary>
+    /// <remarks>
+    /// <b>Subclass override warning:</b> if you override this method, you MUST redeclare
+    /// <c>[EnableRequestBuffering]</c> on the override. Attributes are not inherited through
+    /// virtual method overrides in .NET — omitting it causes <see cref="NotSupportedException"/>
+    /// when <c>Request.Body.Position = 0</c> is reset.
+    /// </remarks>
     [HttpPost("{id:guid}/UpdateField")]
     [EnableRequestBuffering]
     [RequestSizeLimit(DefaultRequestBodySize)]

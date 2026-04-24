@@ -17,5 +17,6 @@ public enum DbErrorType
     ConcurrencyConflict,
     Timeout,
     ConnectionError,
+    Cancelled,
     Unknown
 }
