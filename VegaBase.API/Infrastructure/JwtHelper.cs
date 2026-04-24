@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using VegaBase.Service.Infrastructure;
 
@@ -31,10 +32,12 @@ public class JwtHelper : IJwtHelper
     private const double DefaultExpiryHours = 24;
 
     private readonly IConfiguration _config;
+    private readonly ILogger<JwtHelper> _logger;
 
-    public JwtHelper(IConfiguration config)
+    public JwtHelper(IConfiguration config, ILogger<JwtHelper> logger)
     {
         _config = config;
+        _logger = logger;
         var secret = config["JWT_SECRET"];
         if (string.IsNullOrEmpty(secret))
             throw new InvalidOperationException("JWT_SECRET is not configured.");
@@ -55,7 +58,11 @@ public class JwtHelper : IJwtHelper
 
         foreach (var (code, id) in roles)
         {
-            if (string.IsNullOrEmpty(code) || id == Guid.Empty) continue;
+            if (string.IsNullOrEmpty(code) || id == Guid.Empty)
+            {
+                _logger.LogWarning("[JwtHelper] Skipping invalid role entry: code='{Code}' id={Id}", code, id);
+                continue;
+            }
             claims.Add(new Claim("roleCode",      code));
             claims.Add(new Claim("roleId",        id.ToString()));
             claims.Add(new Claim(ClaimTypes.Role, code));

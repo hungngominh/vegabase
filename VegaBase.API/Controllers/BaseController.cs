@@ -108,6 +108,9 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
             return BadRequest(ApiResponse<TModel>.Fail("Dữ liệu không hợp lệ"));
         }
 
+        if (param.UpdatedFields.Count == 0)
+            return BadRequest(ApiResponse<TModel>.Fail("Không có trường nào được cập nhật"));
+
         var sMessage = new ServiceMessage();
         var result   = await _service.UpdateField(param, sMessage, ct);
 

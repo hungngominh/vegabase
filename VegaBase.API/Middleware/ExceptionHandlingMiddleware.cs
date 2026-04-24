@@ -31,7 +31,12 @@ public class ExceptionHandlingMiddleware
     /// Set this at startup to redact PII (passwords, emails, tokens) from log output.
     /// Returns the original message when null.
     /// </summary>
-    public static Func<string, string>? SanitizeLogMessage { get; set; }
+    private static volatile Func<string, string>? _sanitizeLogMessage;
+    public static Func<string, string>? SanitizeLogMessage
+    {
+        get => _sanitizeLogMessage;
+        set => _sanitizeLogMessage = value;
+    }
 
     public ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
     {
@@ -41,7 +46,6 @@ public class ExceptionHandlingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        context.Request.EnableBuffering();
         try
         {
             await _next(context);

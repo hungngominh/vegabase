@@ -19,13 +19,12 @@ public class PermissionCache
                 g => g.Key,
                 g =>
                 {
-                    var first = g.First();
                     return new ScreenActions
                     {
-                        CanView   = first.CanView,
-                        CanCreate = first.CanCreate,
-                        CanEdit   = first.CanEdit,
-                        CanDelete = first.CanDelete,
+                        CanView   = g.Any(p => p.CanView),
+                        CanCreate = g.Any(p => p.CanCreate),
+                        CanEdit   = g.Any(p => p.CanEdit),
+                        CanDelete = g.Any(p => p.CanDelete),
                     };
                 });
 
@@ -42,14 +41,11 @@ public class PermissionCache
         if (!_store.TryGetValue(roleId, out var role) || role is null) return false;
         if (!role.Screens.TryGetValue(screenCode, out var screen)) return false;
 
-        return action.ToLowerInvariant() switch
-        {
-            "view"   => screen.CanView,
-            "create" => screen.CanCreate,
-            "edit"   => screen.CanEdit,
-            "delete" => screen.CanDelete,
-            _        => false
-        };
+        if (string.Equals(action, "view",   StringComparison.OrdinalIgnoreCase)) return screen.CanView;
+        if (string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)) return screen.CanCreate;
+        if (string.Equals(action, "edit",   StringComparison.OrdinalIgnoreCase)) return screen.CanEdit;
+        if (string.Equals(action, "delete", StringComparison.OrdinalIgnoreCase)) return screen.CanDelete;
+        return false;
     }
 
     public bool HasPermission(IEnumerable<Guid> roleIds, string screenCode, string action)

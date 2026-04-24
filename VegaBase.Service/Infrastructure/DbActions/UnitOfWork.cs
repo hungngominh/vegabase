@@ -10,11 +10,13 @@ internal class UnitOfWork : IUnitOfWork
 {
     private readonly DbContext _db;
     private readonly ILogger _logger;
+    private readonly string _traceId;
 
-    public UnitOfWork(DbContext db, ILogger logger)
+    public UnitOfWork(DbContext db, ILogger logger, string traceId = "")
     {
         _db = db;
         _logger = logger;
+        _traceId = traceId;
     }
 
     public void Add<TEntity>(TEntity entity, string createdBy) where TEntity : BaseEntity
@@ -58,16 +60,16 @@ internal class UnitOfWork : IUnitOfWork
             var count = await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
-                "[DbAction] UnitOfWork.Save {Operation} saved {Count} changes in {DurationMs}ms",
-                operationName, count, sw.ElapsedMilliseconds);
+                "[DbAction] UnitOfWork.Save {Operation} saved {Count} changes in {DurationMs}ms TraceId={TraceId}",
+                operationName, count, sw.ElapsedMilliseconds, _traceId);
             return DbResult<int>.Success(count, sw.Elapsed);
         }
         catch (Exception ex)
         {
             sw.Stop();
             _logger.LogError(ex,
-                "[DbAction] UnitOfWork.Save {Operation} FAILED in {DurationMs}ms",
-                operationName, sw.ElapsedMilliseconds);
+                "[DbAction] UnitOfWork.Save {Operation} FAILED in {DurationMs}ms TraceId={TraceId}",
+                operationName, sw.ElapsedMilliseconds, _traceId);
             return DbResult<int>.Failure(DbActionExecutor.MapException(ex, operationName), sw.Elapsed);
         }
     }
