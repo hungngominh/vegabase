@@ -24,11 +24,17 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         _scopeFactory = scopeFactory;
     }
 
+    /// <summary>
+    /// True if a scope factory was supplied and <see cref="Warm"/> will actually load data.
+    /// Consumers can assert this at startup to catch accidental use of the parameterless ctor.
+    /// </summary>
+    public bool IsWarmingEnabled => _scopeFactory != null;
+
     public TCacheModel? GetItem(TKey key, Func<TKey, TCacheModel?> loader)
     {
         if (_store.TryGetValue(key, out var hit)) return hit;
         var loaded = loader(key);
-        if (loaded != null) _store[key] = loaded;
+        if (loaded != null) _store.TryAdd(key, loaded);
         return loaded;
     }
 
@@ -41,10 +47,18 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         {
             if (_allLoaded) return _store.Values.ToList();
 
+            // Run the loader BEFORE clearing the store so a loader failure keeps
+            // the previous snapshot intact (no window of empty cache during an outage).
+            var fresh = loader();
+
             _store.Clear();
-            foreach (var item in loader())
-                if (ExtractKey(item) is { } key)
-                    _store[key] = item;
+            foreach (var item in fresh)
+            {
+                var key = ExtractKey(item);
+                if (key is null) continue;
+                if (EqualityComparer<TKey>.Default.Equals(key, default!)) continue;
+                _store[key] = item;
+            }
 
             _allLoaded = true;
         }
@@ -56,10 +70,10 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         return _store.Values.ToList();
     }
 
+    /// <summary>Remove a single entry. Does NOT force a full reload on the next <see cref="GetAll"/>.</summary>
     public void Invalidate(TKey key)
     {
         _store.TryRemove(key, out _);
-        _allLoaded = false;
     }
 
     public void InvalidateAll()
@@ -72,6 +86,10 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
 
     protected virtual List<TCacheModel> LoadAll(IDbActionExecutor executor) => [];
 
+    /// <summary>
+    /// Warm the cache at startup. No-op when the parameterless constructor was used
+    /// (see <see cref="IsWarmingEnabled"/>).
+    /// </summary>
     public void Warm()
     {
         if (_scopeFactory == null) return;
