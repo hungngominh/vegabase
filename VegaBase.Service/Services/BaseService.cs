@@ -73,15 +73,15 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         Action         = action
     };
 
-    public async Task<List<TModel>> GetList(TParam param, ServiceMessage sMessage)
+    public async Task<List<TModel>> GetList(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
-        var models = await GetListCore(param, sMessage);
+        var models = await GetListCore(param, sMessage, ct);
         if (!sMessage.HasError)
             await RefineListData(models, param, sMessage);
         return models;
     }
 
-    protected virtual async Task<List<TModel>> GetListCore(TParam param, ServiceMessage sMessage)
+    protected virtual async Task<List<TModel>> GetListCore(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "View"), sMessage);
         if (sMessage.HasError) return [];
@@ -93,26 +93,26 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             return filtered
                 .Skip((param.Page - 1) * param.PageSize)
                 .Take(param.PageSize);
-        });
+        }, ct: ct);
 
         if (!HandleResult(result, sMessage)) return [];
         return result.Data!.Select(ConvertToModel).ToList();
     }
 
-    public virtual async Task<TModel?> GetItem(TParam param, ServiceMessage sMessage)
+    public virtual async Task<TModel?> GetItem(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "View"), sMessage);
         if (sMessage.HasError) return default;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return default; }
-        var result = await _executor.GetByIdAsync<TEntity>(param.Id.Value);
+        var result = await _executor.GetByIdAsync<TEntity>(param.Id.Value, ct: ct);
         if (!HandleResult(result, sMessage)) return default;
         if (result.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return default; }
 
         return ConvertToModel(result.Data);
     }
 
-    public virtual async Task<List<TModel>?> Add(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> Add(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Create"), sMessage);
         if (sMessage.HasError) return null;
@@ -124,20 +124,20 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         if (data is null) { sMessage += "Dữ liệu thêm mới là bắt buộc"; return null; }
 
         var entity = ConvertToEntity(data);
-        var result = await _executor.AddAsync(entity, CallerUsername);
+        var result = await _executor.AddAsync(entity, CallerUsername, ct);
         if (!HandleResult(result, sMessage)) return null;
 
         SafeOnChanged(nameof(Add));
         return [ConvertToModel(result.Data!)];
     }
 
-    public virtual async Task<List<TModel>?> UpdateField(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> UpdateField(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Edit"), sMessage);
         if (sMessage.HasError) return null;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true, ct: ct);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
@@ -152,26 +152,26 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             return [ConvertToModel(entity)];
         }
 
-        var updateResult = await _executor.UpdateAsync(entity, CallerUsername);
+        var updateResult = await _executor.UpdateAsync(entity, CallerUsername, ct);
         if (!HandleResult(updateResult, sMessage)) return null;
 
         SafeOnChanged(nameof(UpdateField));
         return [ConvertToModel(entity)];
     }
 
-    public virtual async Task<List<TModel>?> Delete(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> Delete(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Delete"), sMessage);
         if (sMessage.HasError) return null;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true, ct: ct);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
         if (findResult.Data.IsDeleted) return [];
 
-        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername);
+        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername, ct);
         if (!HandleResult(deleteResult, sMessage)) return null;
 
         SafeOnChanged(nameof(Delete));

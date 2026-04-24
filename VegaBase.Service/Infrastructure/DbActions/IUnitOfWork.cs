@@ -9,5 +9,5 @@ public interface IUnitOfWork
     void AddRange<TEntity>(List<TEntity> entities, string createdBy) where TEntity : BaseEntity;
     void Update<TEntity>(TEntity entity, string updatedBy) where TEntity : BaseEntity;
     void SoftDelete<TEntity>(TEntity entity, string deletedBy) where TEntity : BaseEntity;
-    Task<DbResult<int>> SaveAsync(string operationName = "");
+    Task<DbResult<int>> SaveAsync(string operationName = "", CancellationToken ct = default);
 }

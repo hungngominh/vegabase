@@ -26,11 +26,11 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
         => Infrastructure.CallerInfoHelper.Fill(param, User);
 
     [HttpGet]
-    public virtual async Task<IActionResult> GetList([FromQuery] TParam param)
+    public virtual async Task<IActionResult> GetList([FromQuery] TParam param, CancellationToken ct)
     {
         FillCallerInfo(param);
         var sMessage = new ServiceMessage();
-        var result   = await _service.GetList(param, sMessage);
+        var result   = await _service.GetList(param, sMessage, ct);
 
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
@@ -42,12 +42,12 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
-    public virtual async Task<IActionResult> GetItem(Guid id, [FromQuery] TParam param)
+    public virtual async Task<IActionResult> GetItem(Guid id, [FromQuery] TParam param, CancellationToken ct)
     {
         FillCallerInfo(param);
         param.Id = id;
         var sMessage = new ServiceMessage();
-        var result   = await _service.GetItem(param, sMessage);
+        var result   = await _service.GetItem(param, sMessage, ct);
 
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
@@ -57,11 +57,11 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     }
 
     [HttpPost]
-    public virtual async Task<IActionResult> Add([FromBody] TParam param)
+    public virtual async Task<IActionResult> Add([FromBody] TParam param, CancellationToken ct)
     {
         FillCallerInfo(param);
         var sMessage = new ServiceMessage();
-        var result   = await _service.Add(param, sMessage);
+        var result   = await _service.Add(param, sMessage, ct);
 
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
@@ -70,14 +70,14 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     }
 
     [HttpPost("UpdateField")]
-    public virtual async Task<IActionResult> UpdateField([FromBody] TParam param)
+    public virtual async Task<IActionResult> UpdateField([FromBody] TParam param, CancellationToken ct)
     {
         FillCallerInfo(param);
 
         try
         {
             Request.Body.Position = 0;
-            using var doc = await JsonDocument.ParseAsync(Request.Body);
+            using var doc = await JsonDocument.ParseAsync(Request.Body, cancellationToken: ct);
             foreach (var rootProp in doc.RootElement.EnumerateObject())
             {
                 if (!rootProp.Name.Equals("data", StringComparison.OrdinalIgnoreCase)) continue;
@@ -93,7 +93,7 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
         }
 
         var sMessage = new ServiceMessage();
-        var result   = await _service.UpdateField(param, sMessage);
+        var result   = await _service.UpdateField(param, sMessage, ct);
 
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
@@ -102,11 +102,11 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     }
 
     [HttpPost("Delete")]
-    public virtual async Task<IActionResult> Delete([FromBody] TParam param)
+    public virtual async Task<IActionResult> Delete([FromBody] TParam param, CancellationToken ct)
     {
         FillCallerInfo(param);
         var sMessage = new ServiceMessage();
-        var result   = await _service.Delete(param, sMessage);
+        var result   = await _service.Delete(param, sMessage, ct);
 
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));

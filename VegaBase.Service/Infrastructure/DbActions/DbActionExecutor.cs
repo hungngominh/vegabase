@@ -18,7 +18,7 @@ public class DbActionExecutor : IDbActionExecutor
         _logger = logger;
     }
 
-    public async Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false, bool includeDeleted = false)
+    public async Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false, bool includeDeleted = false, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -27,7 +27,7 @@ public class DbActionExecutor : IDbActionExecutor
             var query = _db.Set<TEntity>().AsQueryable();
             if (!tracked) query = query.AsNoTracking();
             if (!includeDeleted) query = query.Where(e => !e.IsDeleted);
-            var entity = await query.FirstOrDefaultAsync(e => e.Id == id);
+            var entity = await query.FirstOrDefaultAsync(e => e.Id == id, ct);
             sw.Stop();
             _logger.LogDebug(
                 "[DbAction] GetById {EntityType} {EntityId} {Status} in {DurationMs}ms",
@@ -46,7 +46,8 @@ public class DbActionExecutor : IDbActionExecutor
 
     public async Task<DbResult<List<TEntity>>> QueryAsync<TEntity>(
         Func<IQueryable<TEntity>, IQueryable<TEntity>> queryBuilder,
-        bool tracked = false)
+        bool tracked = false,
+        CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -55,7 +56,7 @@ public class DbActionExecutor : IDbActionExecutor
             var query = _db.Set<TEntity>().AsQueryable();
             if (!tracked) query = query.AsNoTracking();
             query = queryBuilder(query);
-            var results = await query.ToListAsync();
+            var results = await query.ToListAsync(ct);
             sw.Stop();
             _logger.LogDebug(
                 "[DbAction] Query {EntityType} returned {Count} rows in {DurationMs}ms",
@@ -72,7 +73,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
     }
 
-    public async Task<DbResult<TEntity>> AddAsync<TEntity>(TEntity entity, string createdBy)
+    public async Task<DbResult<TEntity>> AddAsync<TEntity>(TEntity entity, string createdBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -82,7 +83,7 @@ public class DbActionExecutor : IDbActionExecutor
             entity.Log_CreatedBy = createdBy;
             entity.Log_CreatedDate = DateTimeOffset.UtcNow;
             _db.Set<TEntity>().Add(entity);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] Add {EntityType} {EntityId} OK in {DurationMs}ms",
@@ -99,7 +100,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
     }
 
-    public async Task<DbResult<List<TEntity>>> AddRangeAsync<TEntity>(List<TEntity> entities, string createdBy)
+    public async Task<DbResult<List<TEntity>>> AddRangeAsync<TEntity>(List<TEntity> entities, string createdBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -114,7 +115,7 @@ public class DbActionExecutor : IDbActionExecutor
                 entity.Log_CreatedDate = now;
             }
             _db.Set<TEntity>().AddRange(entities);
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] AddRange {EntityType} x{Count} OK in {DurationMs}ms",
@@ -131,7 +132,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
     }
 
-    public async Task<DbResult<TEntity>> UpdateAsync<TEntity>(TEntity entity, string updatedBy)
+    public async Task<DbResult<TEntity>> UpdateAsync<TEntity>(TEntity entity, string updatedBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -142,7 +143,7 @@ public class DbActionExecutor : IDbActionExecutor
             entity.Log_UpdatedBy = updatedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
             _db.Entry(entity).State = EntityState.Modified;
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] Update {EntityType} {EntityId} OK in {DurationMs}ms",
@@ -159,7 +160,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
     }
 
-    public async Task<DbResult<bool>> SoftDeleteAsync<TEntity>(TEntity entity, string deletedBy)
+    public async Task<DbResult<bool>> SoftDeleteAsync<TEntity>(TEntity entity, string deletedBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -171,7 +172,7 @@ public class DbActionExecutor : IDbActionExecutor
             entity.Log_UpdatedBy = deletedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
             _db.Entry(entity).State = EntityState.Modified;
-            await _db.SaveChangesAsync();
+            await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] SoftDelete {EntityType} {EntityId} OK in {DurationMs}ms",
@@ -189,15 +190,15 @@ public class DbActionExecutor : IDbActionExecutor
     }
 
     public async Task<DbResult<T>> ExecuteInTransactionAsync<T>(
-        Func<IUnitOfWork, Task<T>> action, string operationName = "")
+        Func<IUnitOfWork, Task<T>> action, string operationName = "", CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        await using var transaction = await _db.Database.BeginTransactionAsync();
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
         try
         {
             var uow = new UnitOfWork(_db, _logger);
             var result = await action(uow);
-            await transaction.CommitAsync();
+            await transaction.CommitAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] Transaction {Operation} completed in {DurationMs}ms",
@@ -206,7 +207,7 @@ public class DbActionExecutor : IDbActionExecutor
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
+            await transaction.RollbackAsync(ct);
             sw.Stop();
             _logger.LogError(ex,
                 "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms",

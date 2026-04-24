@@ -50,12 +50,12 @@ internal class UnitOfWork : IUnitOfWork
         _db.Entry(entity).State = EntityState.Modified;
     }
 
-    public async Task<DbResult<int>> SaveAsync(string operationName = "")
+    public async Task<DbResult<int>> SaveAsync(string operationName = "", CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
         try
         {
-            var count = await _db.SaveChangesAsync();
+            var count = await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] UnitOfWork.Save {Operation} saved {Count} changes in {DurationMs}ms",
