@@ -8,6 +8,13 @@ Bộ quy tắc lập trình cho VegaBase — áp dụng cho developer mới, tea
 - Khi onboarding: đọc tuần tự từ 01 → 08
 - Khi tích hợp NuGet: đọc 02, 03, 04
 
+## Audience
+
+| Người dùng | Đọc gì |
+|---|---|
+| **Internal developer** (contribute vào VegaBase) | 01–08 |
+| **Consumer developer** (dùng VegaBase NuGet) | 01–08 (hiểu nguyên tắc) + [`consumer/`](consumer/README.md) (cách áp dụng) |
+
 ## Mục lục
 
 | # | File | Nội dung |
@@ -20,6 +27,7 @@ Bộ quy tắc lập trình cho VegaBase — áp dụng cho developer mới, tea
 | 06 | [Database](06-database.md) | Soft delete, audit, transactions |
 | 07 | [Caching](07-caching.md) | Cache rules và invalidation |
 | 08 | [Testing](08-testing.md) | Testing standards |
+| — | [Consumer Standards](consumer/README.md) | Setup dự án, Entity, Service/Controller cho consumer app |
 
 ## Tất cả Rule Codes
 
@@ -79,3 +87,25 @@ Bộ quy tắc lập trình cho VegaBase — áp dụng cho developer mới, tea
 | TS-03 | Test naming convention | [08-testing.md](08-testing.md) |
 | TS-04 | AAA pattern, một assertion chính | [08-testing.md](08-testing.md) |
 | TS-05 | Test project structure | [08-testing.md](08-testing.md) |
+| **Consumer Rules** | | |
+| LA-07 | Project layout mirror VegaBase | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| LA-08 | DbContext bridge bắt buộc | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| LA-09 | DI đăng ký bắt buộc | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| LA-10 | Request buffering middleware | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| LA-11 | Env vars bắt buộc | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| LA-12 | Startup sequence cố định | [consumer/01-project-setup.md](consumer/01-project-setup.md) |
+| NS-09 | Namespace entity theo project | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-08 | Inherit BaseEntity bắt buộc | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-09 | HasQueryFilter trên mọi entity | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-10 | Unique index phải kèm HasFilter | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-11 | Guid PK không auto-generate | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-12 | Override SaveChanges: soft-delete | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| DB-13 | Decimal phải khai báo precision | [consumer/02-entity-dbcontext.md](consumer/02-entity-dbcontext.md) |
+| NS-10 | ScreenCode constant class | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-11 | Inherit BaseService đúng generic | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-12 | Override ScreenCode bắt buộc | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-13 | Dùng hooks đúng mục đích | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-14 | XParam phải chứa Data property | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-15 | Controller inherit BaseController | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-16 | Custom endpoint trả ApiResponse | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
+| BC-17 | Không inject DbContext vào Service | [consumer/03-service-controller.md](consumer/03-service-controller.md) |
