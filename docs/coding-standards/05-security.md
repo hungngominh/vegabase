@@ -8,6 +8,8 @@ Quy tắc bảo mật — password, JWT, authorization, và data exposure.
 
 `BaseService` tự động kiểm tra CRUD permission trước mỗi thao tác (View/Create/Edit/Delete). Trong các hook, dùng `CheckPermission()` cho custom permission check. `HasPermission()` là synchronous (không cần `await`).
 
+> **Thứ tự kiểm tra trong `CheckPermission` (V1):** Admin bypass (`CallerRole == "admin"`) được kiểm tra **trước** `ScreenCode`. Admin luôn được phép qua kể cả khi `ScreenCode` chưa cấu hình. `ScreenCode` rỗng chỉ block non-admin.
+
 ```csharp
 // ✅ Đúng: BaseService tự kiểm tra CRUD permission — không cần làm gì thêm cho Add/Edit/Delete/View
 // ✅ Trong hook, dùng CheckPermission() nếu cần check thêm:
@@ -73,6 +75,17 @@ var secret = Environment.GetEnvironmentVariable("JWT_SECRET")
 var secret = "my-super-secret-key-do-not-share";
 var secret = _config["Jwt:Secret"]; // appsettings bị commit vào git
 ```
+
+> **Lưu ý khi xử lý danh sách roles (N1):** Tham số `roles` trong `GenerateToken` có thể là lazy `IEnumerable`. Không gọi `.Any()` sau `foreach` vì iterator đã bị exhausted — kết quả luôn `false`. Dùng flag boolean thay thế:
+> ```csharp
+> var hadAnyRoles = false;
+> foreach (var (code, id) in roles)
+> {
+>     hadAnyRoles = true;
+>     // ... xử lý
+> }
+> if (roleClaims == 0 && hadAnyRoles) _logger.LogError(...);
+> ```
 
 ---
 

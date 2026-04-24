@@ -131,3 +131,24 @@ return BadRequest(ApiResponse<object>.Fail("Đã xảy ra lỗi. Vui lòng thử
 return BadRequest(ApiResponse<object>.Fail(ex.StackTrace));
 return BadRequest(ApiResponse<object>.Fail(ex.InnerException?.Message));
 ```
+
+---
+
+## EH-07 — Không log cùng một exception hai lần trong middleware
+
+Khi `ExceptionHandlingMiddleware` bắt exception, nó log ở `LogError` trước khi kiểm tra `Response.HasStarted`. Nếu response đã gửi, chỉ log thêm `LogWarning` **không kèm exception** (exception đã có trong log trước đó). Log exception hai lần tạo noise và làm alert system kích hoạt nhân đôi.
+
+```csharp
+// ✅ Đúng: exception log 1 lần ở LogError; nếu response đã gửi thì LogWarning không kèm ex
+_logger.LogError(ex, "Unhandled exception: {Message} [TraceId={TraceId}]", safeMessage, traceId);
+if (context.Response.HasStarted)
+{
+    _logger.LogWarning("Response already started — cannot write 500 [TraceId={TraceId}]", traceId);
+    throw;
+}
+
+// ❌ Sai: log exception 2 lần → double alert
+_logger.LogError(ex, "Unhandled exception...");
+if (context.Response.HasStarted)
+    _logger.LogError(ex, "Exception after response started..."); // ex đã log rồi
+```
