@@ -18,7 +18,7 @@ public class DbActionExecutor : IDbActionExecutor
         _logger = logger;
     }
 
-    public async Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false)
+    public async Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false, bool includeDeleted = false)
         where TEntity : BaseEntity
     {
         var sw = Stopwatch.StartNew();
@@ -26,6 +26,7 @@ public class DbActionExecutor : IDbActionExecutor
         {
             var query = _db.Set<TEntity>().AsQueryable();
             if (!tracked) query = query.AsNoTracking();
+            if (!includeDeleted) query = query.Where(e => !e.IsDeleted);
             var entity = await query.FirstOrDefaultAsync(e => e.Id == id);
             sw.Stop();
             _logger.LogDebug(

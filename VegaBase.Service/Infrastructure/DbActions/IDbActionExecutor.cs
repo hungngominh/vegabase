@@ -5,7 +5,7 @@ namespace VegaBase.Service.Infrastructure.DbActions;
 
 public interface IDbActionExecutor
 {
-    Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false)
+    Task<DbResult<TEntity?>> GetByIdAsync<TEntity>(Guid id, bool tracked = false, bool includeDeleted = false)
         where TEntity : BaseEntity;
 
     Task<DbResult<List<TEntity>>> QueryAsync<TEntity>(
