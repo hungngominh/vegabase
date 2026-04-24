@@ -148,10 +148,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
         var changed = ApplyUpdate(entity, param);
         if (!changed)
-        {
-            SafeOnChanged(nameof(UpdateField));
             return [ConvertToModel(entity)];
-        }
 
         var updateResult = await _executor.UpdateAsync(entity, CallerUsername, ct);
         if (!HandleResult(updateResult, sMessage)) return null;
@@ -250,8 +247,19 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             var srcType = Nullable.GetUnderlyingType(src.PropertyType) ?? src.PropertyType;
             if (!dst.PropertyType.IsAssignableFrom(src.PropertyType) && dstType != srcType)
             {
-                _logger.LogDebug("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
-                    src.Name, src.PropertyType.Name, dst.PropertyType.Name);
+                var srcVal = src.GetValue(data);
+                if (srcVal == null) continue;
+                try
+                {
+                    var converted = Convert.ChangeType(srcVal, dstType);
+                    dst.SetValue(entity, converted);
+                    changed = true;
+                }
+                catch
+                {
+                    _logger.LogDebug("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
+                        src.Name, src.PropertyType.Name, dst.PropertyType.Name);
+                }
                 continue;
             }
 

@@ -28,7 +28,7 @@ public static class VegaBaseRateLimiting
     /// <summary>Policy name for CPU-bound auth endpoints (login, password change).</summary>
     public const string AuthPolicy = "vegabase-auth";
 
-    /// <summary>Default: 5 requests per minute per IP.</summary>
+    /// <summary>Default: 5 requests per 60-second window, partitioned per client IP.</summary>
     public static readonly RateLimitOptions DefaultAuthOptions = new()
     {
         PermitLimit    = 5,
@@ -47,12 +47,15 @@ public static class VegaBaseRateLimiting
 
         services.AddRateLimiter(limiter =>
         {
-            limiter.AddFixedWindowLimiter(AuthPolicy, fixedOptions =>
-            {
-                fixedOptions.PermitLimit = options.PermitLimit;
-                fixedOptions.Window      = TimeSpan.FromSeconds(options.WindowSeconds);
-                fixedOptions.QueueLimit  = options.QueueLimit;
-            });
+            limiter.AddPolicy(AuthPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = options.PermitLimit,
+                        Window      = TimeSpan.FromSeconds(options.WindowSeconds),
+                        QueueLimit  = options.QueueLimit,
+                    }));
 
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         });

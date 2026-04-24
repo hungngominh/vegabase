@@ -37,10 +37,20 @@ public static class ConnectionStringHelper
         if (string.IsNullOrEmpty(password))
             Console.Error.WriteLine("[VegaBase] WARNING: DB_PASSWORD is not set.");
 
-        var maxPool = int.TryParse(
-            Environment.GetEnvironmentVariable("DB_MAX_POOL_SIZE"),
-            out var parsed) && parsed > 0
+        var rawPoolSize = Environment.GetEnvironmentVariable("DB_MAX_POOL_SIZE");
+        var maxPool = int.TryParse(rawPoolSize, out var parsed) && parsed > 0
             ? parsed : DefaultMaxPoolSize;
+        if (!string.IsNullOrEmpty(rawPoolSize) && (!int.TryParse(rawPoolSize, out var parsedCheck) || parsedCheck <= 0))
+            Console.Error.WriteLine($"[VegaBase] WARNING: DB_MAX_POOL_SIZE '{rawPoolSize}' is invalid; using default {DefaultMaxPoolSize}.");
+
+        var trustCert = Environment.GetEnvironmentVariable("DB_TRUST_SERVER_CERTIFICATE");
+        var trustServerCert = trustCert switch
+        {
+            _ when string.Equals(trustCert, "true",  StringComparison.OrdinalIgnoreCase) => true,
+            _ when string.Equals(trustCert, "yes",   StringComparison.OrdinalIgnoreCase) => true,
+            _ when trustCert == "1" => true,
+            _ => false  // default false for production safety
+        };
 
         if (IsPostgreSQL())
         {
@@ -63,7 +73,7 @@ public static class ConnectionStringHelper
                 InitialCatalog         = db,
                 UserID                 = user,
                 Password               = password,
-                TrustServerCertificate = true,
+                TrustServerCertificate = trustServerCert,
                 MaxPoolSize            = maxPool,
             };
             return builder.ConnectionString;

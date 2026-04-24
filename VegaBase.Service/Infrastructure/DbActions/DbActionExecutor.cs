@@ -134,11 +134,30 @@ public class DbActionExecutor : IDbActionExecutor
                 entity.Log_CreatedDate = now;
             }
 
-            for (var i = 0; i < entities.Count; i += AddRangeChunkSize)
+            var ownedTransaction = _db.Database.CurrentTransaction == null
+                ? await _db.Database.BeginTransactionAsync(ct)
+                : null;
+            try
             {
-                var chunk = entities.GetRange(i, Math.Min(AddRangeChunkSize, entities.Count - i));
-                _db.Set<TEntity>().AddRange(chunk);
-                await _db.SaveChangesAsync(ct);
+                for (var i = 0; i < entities.Count; i += AddRangeChunkSize)
+                {
+                    var chunk = entities.GetRange(i, Math.Min(AddRangeChunkSize, entities.Count - i));
+                    _db.Set<TEntity>().AddRange(chunk);
+                    await _db.SaveChangesAsync(ct);
+                }
+                if (ownedTransaction != null)
+                    await ownedTransaction.CommitAsync(ct);
+            }
+            catch
+            {
+                if (ownedTransaction != null)
+                    await ownedTransaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+            finally
+            {
+                if (ownedTransaction != null)
+                    await ownedTransaction.DisposeAsync();
             }
 
             sw.Stop();
@@ -221,7 +240,7 @@ public class DbActionExecutor : IDbActionExecutor
         await using var transaction = await _db.Database.BeginTransactionAsync(ct);
         try
         {
-            var uow = new UnitOfWork(_db, _logger);
+            var uow = new UnitOfWork(_db, _logger, TraceId);
             var result = await action(uow);
             await transaction.CommitAsync(ct);
             sw.Stop();
