@@ -11,19 +11,13 @@ public static class ConnectionStringHelper
     public static bool IsPostgreSQL()
     {
         var raw = Environment.GetEnvironmentVariable("DB_IS_POSTGRESQL");
-        return raw switch
-        {
-            null                                            => true,
-            _ when raw.Equals("true",  StringComparison.OrdinalIgnoreCase) => true,
-            _ when raw.Equals("yes",   StringComparison.OrdinalIgnoreCase) => true,
-            _ when raw.Equals("on",    StringComparison.OrdinalIgnoreCase) => true,
-            _ when raw == "1"                                              => true,
-            _ when raw.Equals("false", StringComparison.OrdinalIgnoreCase) => false,
-            _ when raw.Equals("no",    StringComparison.OrdinalIgnoreCase) => false,
-            _ when raw.Equals("off",   StringComparison.OrdinalIgnoreCase) => false,
-            _ when raw == "0"                                              => false,
-            _                                                              => true,
-        };
+        if (raw is null) return true;
+        if (raw.Equals("true",  StringComparison.OrdinalIgnoreCase) || raw.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("on",    StringComparison.OrdinalIgnoreCase) || raw == "1") return true;
+        if (raw.Equals("false", StringComparison.OrdinalIgnoreCase) || raw.Equals("no",  StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("off",   StringComparison.OrdinalIgnoreCase) || raw == "0") return false;
+        Console.Error.WriteLine($"[VegaBase] WARNING: DB_IS_POSTGRESQL '{raw}' is not recognized; defaulting to PostgreSQL.");
+        return true;
     }
 
     public static string Build()
@@ -62,7 +56,10 @@ public static class ConnectionStringHelper
                 Password        = password,
                 MaxPoolSize     = maxPool,
             };
-            if (int.TryParse(port, out var pgPort)) builder.Port = pgPort;
+            if (int.TryParse(port, out var pgPort) && pgPort is >= 1 and <= 65535)
+                builder.Port = pgPort;
+            else
+                Console.Error.WriteLine($"[VegaBase] WARNING: DB_PORT '{port}' is not a valid port number (1-65535); using Npgsql default.");
             return builder.ConnectionString;
         }
         else

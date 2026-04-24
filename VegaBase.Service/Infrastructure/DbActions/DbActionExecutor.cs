@@ -243,12 +243,15 @@ public class DbActionExecutor : IDbActionExecutor
         Func<IUnitOfWork, Task<T>> action, string operationName = "", CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        var ownedTransaction = _db.Database.CurrentTransaction == null
+            ? await _db.Database.BeginTransactionAsync(ct)
+            : null;
         try
         {
             var uow = new UnitOfWork(_db, _logger, TraceId);
             var result = await action(uow);
-            await transaction.CommitAsync(ct);
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] Transaction {Operation} completed in {DurationMs}ms TraceId={TraceId}",
@@ -257,12 +260,18 @@ public class DbActionExecutor : IDbActionExecutor
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync(CancellationToken.None);
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(CancellationToken.None);
             sw.Stop();
             _logger.LogError(ex,
                 "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms TraceId={TraceId}",
                 operationName, sw.ElapsedMilliseconds, TraceId);
             return DbResult<T>.Failure(MapException(ex, "Transaction"), sw.Elapsed);
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
         }
     }
 

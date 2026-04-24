@@ -1,6 +1,5 @@
 // VegaBase.API/Middleware/ExceptionHandlingMiddleware.cs
 using System.Net;
-using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using VegaBase.Core.Common;
@@ -72,10 +71,9 @@ public class ExceptionHandlingMiddleware
                 throw;
             }
 
-            context.Response.StatusCode  = (int)HttpStatusCode.InternalServerError;
-            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
             var response = ApiResponse<object>.Fail("Đã xảy ra lỗi không mong muốn.", traceId);
-            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+            await context.Response.WriteAsJsonAsync(response, cancellationToken: context.RequestAborted);
         }
     }
 }

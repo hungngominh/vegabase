@@ -88,6 +88,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         return models;
     }
 
+    /// <summary>Override only when async cross-table filtering is needed. When overriding, you MUST apply <c>q.Where(e =&gt; !e.IsDeleted)</c> first — the soft-delete filter is not re-applied automatically.</summary>
     protected virtual async Task<List<TModel>> GetListCore(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "View"), sMessage);
@@ -269,6 +270,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
                 try
                 {
                     var converted = Convert.ChangeType(srcVal, dstType);
+                    _logger.LogDebug("[AutoApplyUpdate] Converted {Prop}: {SrcVal} ({SrcType}) -> {ConvertedVal} ({DstType})",
+                        src.Name, srcVal, srcType.Name, converted, dstType.Name);
                     dst.SetValue(entity, converted);
                     changed = true;
                 }
