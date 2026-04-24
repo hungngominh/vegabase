@@ -58,7 +58,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected void CheckPermission(PermissionCheckParam param, ServiceMessage sMessage)
     {
-        if (param.CallerRole == "admin") return;
+        if (string.Equals(param.CallerRole, "admin", StringComparison.OrdinalIgnoreCase)) return;
 
         if (!_permissionCache.HasPermission(param.CallerRoleIds, ScreenCode, param.Action))
             sMessage += $"Bạn không có quyền thực hiện thao tác này " +
