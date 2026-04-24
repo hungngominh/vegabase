@@ -43,7 +43,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected string CallerUsername =>
         _httpContextAccessor.HttpContext?
-            .User?.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+            .User?.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
 
     protected string CallerRole =>
         _httpContextAccessor.HttpContext?
@@ -76,7 +76,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     public async Task<List<TModel>> GetList(TParam param, ServiceMessage sMessage)
     {
         var models = await GetListCore(param, sMessage);
-        if (!sMessage.HasError && models.Count > 0)
+        if (!sMessage.HasError)
             await RefineListData(models, param, sMessage);
         return models;
     }
@@ -88,7 +88,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
         var result = await _executor.QueryAsync<TEntity>(q =>
         {
-            var filtered = ApplyFilter(q, param);
+            var filtered = ApplyFilter(q.Where(e => !e.IsDeleted), param);
             param.TotalCount = filtered.Count();
             return filtered
                 .Skip((param.Page - 1) * param.PageSize)
@@ -120,10 +120,10 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         await CheckAddCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        var data   = GetAddData(param);
+        var data = GetAddData(param);
+        if (data is null) { sMessage += "Dữ liệu thêm mới là bắt buộc"; return null; }
+
         var entity = ConvertToEntity(data);
-        if (entity.Id == Guid.Empty)
-            entity.Id = Guid.CreateVersion7();
         var result = await _executor.AddAsync(entity, CallerUsername);
         if (!HandleResult(result, sMessage)) return null;
 
@@ -145,7 +145,13 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         await CheckUpdateCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        ApplyUpdate(entity, param);
+        var changed = ApplyUpdate(entity, param);
+        if (!changed)
+        {
+            SafeOnChanged(nameof(UpdateField));
+            return [ConvertToModel(entity)];
+        }
+
         var updateResult = await _executor.UpdateAsync(entity, CallerUsername);
         if (!HandleResult(updateResult, sMessage)) return null;
 
@@ -162,6 +168,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
+
+        if (findResult.Data.IsDeleted) return [];
 
         var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername);
         if (!HandleResult(deleteResult, sMessage)) return null;
@@ -199,17 +207,22 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     protected virtual Task CheckUpdateCondition(TParam param, ServiceMessage sMessage)
         => Task.CompletedTask;
 
-    protected virtual void ApplyUpdate(TEntity entity, TParam param)
+    /// <summary>
+    /// Apply partial-update fields to the tracked entity.
+    /// Returns <c>true</c> if at least one field was assigned (so the caller can skip the DB round-trip otherwise).
+    /// Default implementation delegates to <see cref="AutoApplyUpdate"/>.
+    /// </summary>
+    protected virtual bool ApplyUpdate(TEntity entity, TParam param)
         => AutoApplyUpdate(entity, param);
 
-    protected void AutoApplyUpdate(TEntity entity, TParam param)
+    protected bool AutoApplyUpdate(TEntity entity, TParam param)
     {
         var dataProp = param.GetType().GetProperty("Data");
         var data     = dataProp?.GetValue(param);
         if (data == null)
         {
             _logger.LogWarning("[AutoApplyUpdate] param.Data is NULL — skipping.");
-            return;
+            return false;
         }
 
         var entityType  = entity.GetType();
@@ -218,6 +231,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Id", "IsDeleted", "Log_CreatedDate", "Log_CreatedBy", "Log_UpdatedDate", "Log_UpdatedBy" };
 
+        var changed = false;
         foreach (var src in sourceProps)
         {
             if (skip.Contains(src.Name)) continue;
@@ -226,8 +240,19 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             var dst = entityType.GetProperty(src.Name, BindingFlags.Public | BindingFlags.Instance);
             if (dst == null || !dst.CanWrite) continue;
 
+            var dstType = Nullable.GetUnderlyingType(dst.PropertyType) ?? dst.PropertyType;
+            var srcType = Nullable.GetUnderlyingType(src.PropertyType) ?? src.PropertyType;
+            if (!dst.PropertyType.IsAssignableFrom(src.PropertyType) && dstType != srcType)
+            {
+                _logger.LogDebug("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
+                    src.Name, src.PropertyType.Name, dst.PropertyType.Name);
+                continue;
+            }
+
             dst.SetValue(entity, src.GetValue(data));
+            changed = true;
         }
+        return changed;
     }
 
     // ── Abstract ─────────────────────────────────────────────────
