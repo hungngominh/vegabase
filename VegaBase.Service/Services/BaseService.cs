@@ -43,7 +43,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected string CallerUsername =>
         _httpContextAccessor.HttpContext?
-            .User?.FindFirst(ClaimTypes.Name)?.Value ?? "system";
+            .User?.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
 
     protected string CallerRole =>
         _httpContextAccessor.HttpContext?
@@ -58,7 +58,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected void CheckPermission(PermissionCheckParam param, ServiceMessage sMessage)
     {
-        if (param.CallerRole == "admin") return;
+        if (string.Equals(param.CallerRole, "admin", StringComparison.OrdinalIgnoreCase)) return;
 
         if (!_permissionCache.HasPermission(param.CallerRoleIds, ScreenCode, param.Action))
             sMessage += $"Bạn không có quyền thực hiện thao tác này " +
@@ -73,46 +73,46 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         Action         = action
     };
 
-    public async Task<List<TModel>> GetList(TParam param, ServiceMessage sMessage)
+    public async Task<List<TModel>> GetList(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
-        var models = await GetListCore(param, sMessage);
-        if (!sMessage.HasError && models.Count > 0)
+        var models = await GetListCore(param, sMessage, ct);
+        if (!sMessage.HasError)
             await RefineListData(models, param, sMessage);
         return models;
     }
 
-    protected virtual async Task<List<TModel>> GetListCore(TParam param, ServiceMessage sMessage)
+    protected virtual async Task<List<TModel>> GetListCore(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "View"), sMessage);
         if (sMessage.HasError) return [];
 
         var result = await _executor.QueryAsync<TEntity>(q =>
         {
-            var filtered = ApplyFilter(q, param);
+            var filtered = ApplyFilter(q.Where(e => !e.IsDeleted), param);
             param.TotalCount = filtered.Count();
             return filtered
                 .Skip((param.Page - 1) * param.PageSize)
                 .Take(param.PageSize);
-        });
+        }, ct: ct);
 
         if (!HandleResult(result, sMessage)) return [];
         return result.Data!.Select(ConvertToModel).ToList();
     }
 
-    public virtual async Task<TModel?> GetItem(TParam param, ServiceMessage sMessage)
+    public virtual async Task<TModel?> GetItem(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "View"), sMessage);
         if (sMessage.HasError) return default;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return default; }
-        var result = await _executor.GetByIdAsync<TEntity>(param.Id.Value);
+        var result = await _executor.GetByIdAsync<TEntity>(param.Id.Value, ct: ct);
         if (!HandleResult(result, sMessage)) return default;
         if (result.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return default; }
 
         return ConvertToModel(result.Data);
     }
 
-    public virtual async Task<List<TModel>?> Add(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> Add(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Create"), sMessage);
         if (sMessage.HasError) return null;
@@ -120,24 +120,24 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         await CheckAddCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        var data   = GetAddData(param);
+        var data = GetAddData(param);
+        if (data is null) { sMessage += "Dữ liệu thêm mới là bắt buộc"; return null; }
+
         var entity = ConvertToEntity(data);
-        if (entity.Id == Guid.Empty)
-            entity.Id = Guid.CreateVersion7();
-        var result = await _executor.AddAsync(entity, CallerUsername);
+        var result = await _executor.AddAsync(entity, CallerUsername, ct);
         if (!HandleResult(result, sMessage)) return null;
 
         SafeOnChanged(nameof(Add));
         return [ConvertToModel(result.Data!)];
     }
 
-    public virtual async Task<List<TModel>?> UpdateField(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> UpdateField(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Edit"), sMessage);
         if (sMessage.HasError) return null;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true, ct: ct);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
@@ -145,25 +145,33 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         await CheckUpdateCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        ApplyUpdate(entity, param);
-        var updateResult = await _executor.UpdateAsync(entity, CallerUsername);
+        var changed = ApplyUpdate(entity, param);
+        if (!changed)
+        {
+            SafeOnChanged(nameof(UpdateField));
+            return [ConvertToModel(entity)];
+        }
+
+        var updateResult = await _executor.UpdateAsync(entity, CallerUsername, ct);
         if (!HandleResult(updateResult, sMessage)) return null;
 
         SafeOnChanged(nameof(UpdateField));
         return [ConvertToModel(entity)];
     }
 
-    public virtual async Task<List<TModel>?> Delete(TParam param, ServiceMessage sMessage)
+    public virtual async Task<List<TModel>?> Delete(TParam param, ServiceMessage sMessage, CancellationToken ct = default)
     {
         CheckPermission(PermParam(param, "Delete"), sMessage);
         if (sMessage.HasError) return null;
 
         if (param.Id is null) { sMessage += "Id là bắt buộc"; return null; }
-        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true);
+        var findResult = await _executor.GetByIdAsync<TEntity>(param.Id.Value, tracked: true, ct: ct);
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
-        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername);
+        if (findResult.Data.IsDeleted) return [];
+
+        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername, ct);
         if (!HandleResult(deleteResult, sMessage)) return null;
 
         SafeOnChanged(nameof(Delete));
@@ -199,17 +207,22 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     protected virtual Task CheckUpdateCondition(TParam param, ServiceMessage sMessage)
         => Task.CompletedTask;
 
-    protected virtual void ApplyUpdate(TEntity entity, TParam param)
+    /// <summary>
+    /// Apply partial-update fields to the tracked entity.
+    /// Returns <c>true</c> if at least one field was assigned (so the caller can skip the DB round-trip otherwise).
+    /// Default implementation delegates to <see cref="AutoApplyUpdate"/>.
+    /// </summary>
+    protected virtual bool ApplyUpdate(TEntity entity, TParam param)
         => AutoApplyUpdate(entity, param);
 
-    protected void AutoApplyUpdate(TEntity entity, TParam param)
+    protected bool AutoApplyUpdate(TEntity entity, TParam param)
     {
         var dataProp = param.GetType().GetProperty("Data");
         var data     = dataProp?.GetValue(param);
         if (data == null)
         {
             _logger.LogWarning("[AutoApplyUpdate] param.Data is NULL — skipping.");
-            return;
+            return false;
         }
 
         var entityType  = entity.GetType();
@@ -218,6 +231,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Id", "IsDeleted", "Log_CreatedDate", "Log_CreatedBy", "Log_UpdatedDate", "Log_UpdatedBy" };
 
+        var changed = false;
         foreach (var src in sourceProps)
         {
             if (skip.Contains(src.Name)) continue;
@@ -226,8 +240,19 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             var dst = entityType.GetProperty(src.Name, BindingFlags.Public | BindingFlags.Instance);
             if (dst == null || !dst.CanWrite) continue;
 
+            var dstType = Nullable.GetUnderlyingType(dst.PropertyType) ?? dst.PropertyType;
+            var srcType = Nullable.GetUnderlyingType(src.PropertyType) ?? src.PropertyType;
+            if (!dst.PropertyType.IsAssignableFrom(src.PropertyType) && dstType != srcType)
+            {
+                _logger.LogDebug("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
+                    src.Name, src.PropertyType.Name, dst.PropertyType.Name);
+                continue;
+            }
+
             dst.SetValue(entity, src.GetValue(data));
+            changed = true;
         }
+        return changed;
     }
 
     // ── Abstract ─────────────────────────────────────────────────

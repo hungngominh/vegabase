@@ -43,6 +43,7 @@ All code — human or AI-generated — must follow these standards. **Read the r
 
 - **Simplicity first** — no features beyond what was asked, no abstractions for single-use code, no speculative flexibility. If 200 lines could be 50, rewrite.
 - **Surgical changes** — don't "improve" adjacent code, comments, or formatting. Match existing style. Only remove imports/variables your changes made unused.
+- **Reuse before create** — before writing any new class, method, or utility, search the codebase for existing code that does the same or similar thing (use the Graph Codebase MCP tool if available). Extend or call what exists; only create new code when there is no suitable match. If you find a near-match, state the difference and ask before duplicating.
 - **Goal-driven** — transform tasks into verifiable goals first. "Fix the bug" → reproduce with a test, then fix. For multi-step tasks, state a brief plan with a verify step per item before touching code.
 
 ## Project Architecture

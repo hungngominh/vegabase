@@ -10,9 +10,11 @@ namespace VegaBase.Service.Permissions;
 public interface IPermissionCache : ICacheStore<Guid, RolePermissionCache>
 {
     /// <summary>
-    /// Pre-warm cache for one role. Idempotent — if already cached, skip.
+    /// Pre-warm cache for one role. Idempotent by default — if already cached, skip.
+    /// Pass <paramref name="overwrite"/>=true to force replacement (equivalent to
+    /// <see cref="ICacheStore{TKey, TCacheModel}.Invalidate"/> + Load).
     /// </summary>
-    Task LoadAsync(Guid roleId, IEnumerable<PermissionEntry> permissions);
+    Task LoadAsync(Guid roleId, IEnumerable<PermissionEntry> permissions, bool overwrite = false);
 
     /// <summary>
     /// Check permission — O(1), no DB hit.

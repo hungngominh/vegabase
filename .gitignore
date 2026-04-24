@@ -8,3 +8,5 @@ obj/
 *.nupkg
 *.snupkg
 nupkgs/
+# Added by code-review-graph
+.code-review-graph/

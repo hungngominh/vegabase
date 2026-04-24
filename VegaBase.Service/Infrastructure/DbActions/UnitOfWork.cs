@@ -39,6 +39,7 @@ internal class UnitOfWork : IUnitOfWork
     {
         entity.Log_UpdatedBy = updatedBy;
         entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
+        _db.Entry(entity).State = EntityState.Modified;
     }
 
     public void SoftDelete<TEntity>(TEntity entity, string deletedBy) where TEntity : BaseEntity
@@ -46,14 +47,15 @@ internal class UnitOfWork : IUnitOfWork
         entity.IsDeleted = true;
         entity.Log_UpdatedBy = deletedBy;
         entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
+        _db.Entry(entity).State = EntityState.Modified;
     }
 
-    public async Task<DbResult<int>> SaveAsync(string operationName = "")
+    public async Task<DbResult<int>> SaveAsync(string operationName = "", CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
         try
         {
-            var count = await _db.SaveChangesAsync();
+            var count = await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
                 "[DbAction] UnitOfWork.Save {Operation} saved {Count} changes in {DurationMs}ms",
