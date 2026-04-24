@@ -141,6 +141,7 @@ Commit message format: `feat: <description> (v1.0.x)`
 | `DB_USER` | No | `postgres` |
 | `DB_PASSWORD` | No | — |
 | `DB_MAX_POOL_SIZE` | No | `200` |
+| `DB_TRUST_SERVER_CERTIFICATE` | No | `false` (SQL Server only) |
 
 ## Contributor Workflow
 

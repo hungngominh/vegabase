@@ -109,21 +109,21 @@ Thiếu bất kỳ dependency nào → runtime crash khi resolve service đầu 
 
 ## LA-10 — Request buffering middleware
 
-`ExceptionHandlingMiddleware` (được cài qua `app.UseVegaBase()`) tự động gọi `EnableBuffering()` cho mọi request. Đây là lý do **phải gọi `UseVegaBase()` trước `UseAuthentication()`**:
+**Phải gọi `UseVegaBase()` trước `UseAuthentication()`**:
 
 ```csharp
 // Program.cs
 var app = builder.Build();
 
-app.UseVegaBase();          // cài ExceptionHandlingMiddleware + EnableBuffering tự động
+app.UseVegaBase();          // cài ExceptionHandlingMiddleware
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 ```
 
-**Không cần** thêm middleware `EnableBuffering` thủ công nữa — đã được xử lý bên trong `UseVegaBase()`.
+**Không cần** thêm middleware `EnableBuffering` thủ công — VegaBase tự xử lý qua attribute.
 
-> **Kỹ thuật:** `BaseController.UpdateField` đọc raw request body 2 lần — lần 1 để deserialize, lần 2 để detect partial-update fields qua `UpdatedFields`. Nếu body không được buffer, stream hết sau lần đọc đầu. VegaBase dùng `[EnableRequestBuffering]` attribute trên action này để đảm bảo, thêm `ExceptionHandlingMiddleware` gọi `EnableBuffering` là belt-and-suspenders.
+> **Kỹ thuật:** `BaseController.UpdateField` đọc raw request body 2 lần — lần 1 để deserialize, lần 2 để detect partial-update fields qua `UpdatedFields`. VegaBase dùng `[EnableRequestBuffering]` attribute trực tiếp trên action `UpdateField` để buffer body cho endpoint đó. Các request khác (GET, DELETE) không bị buffer không cần thiết.
 
 ---
 
@@ -141,6 +141,7 @@ DB_PORT=5432
 DB_NAME=AppDB
 DB_USER=postgres
 DB_PASSWORD=your_password
+DB_TRUST_SERVER_CERTIFICATE=false   # SQL Server only; để false trừ khi dev local
 
 # .env.example (committed — template rỗng)
 JWT_SECRET=
@@ -150,6 +151,7 @@ DB_PORT=5432
 DB_NAME=AppDB
 DB_USER=postgres
 DB_PASSWORD=
+DB_TRUST_SERVER_CERTIFICATE=false
 ```
 
 **Không được** cung cấp fallback cho `JWT_SECRET` trong code:
