@@ -87,6 +87,7 @@ Thiếu → `BaseService` dùng empty string `""` → `CheckPermission` không t
 | `ApplyFilter` | LINQ filter đồng bộ trên `IQueryable` | Query async cross-table |
 | `CheckAddCondition` | Validate duplicate/constraint trước Add | Business logic phức tạp |
 | `CheckUpdateCondition` | Validate khi update, kết hợp `HasField` | Filter list |
+| `CheckDeleteCondition` | Validate trước soft-delete | Filter list |
 | `RefineListData` | Post-load enrich (ảnh, join nhỏ) | Filter (đã paginate rồi) |
 | `OnChanged` | Invalidate cache sau write | Query DB |
 
@@ -176,6 +177,7 @@ public class VehicleController : BaseController<IVehicleService, VehicleModel, V
 - `[Authorize]` ở class level — không phải từng action
 - Ngoại lệ duy nhất: Auth controller (public endpoint)
 - `BaseController` cung cấp sẵn: `GetList`, `GetItem`, `Add`, `UpdateField`, `Delete`
+- Route của `UpdateField` là `POST /{id}/UpdateField`; `Delete` là `POST /{id}/Delete` — id phải có trong URL, không chỉ trong body
 - Xem [BC-09](../03-base-classes.md) cho quy tắc gốc
 
 ---

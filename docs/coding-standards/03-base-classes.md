@@ -6,10 +6,11 @@ Quy tắc extend và sử dụng `BaseService` và `BaseController`.
 
 | Hook | Mục đích | Khi nào override |
 |---|---|---|
-| `ApplyFilter` | Lọc LINQ query | Luôn override để thêm filter theo param |
+| `ApplyFilter` | Lọc LINQ query | Override để thêm filter; `!IsDeleted` đã được apply tự động trước hook này |
 | `CheckAddCondition` | Validate trước insert | Khi có business rule cho add |
 | `CheckUpdateCondition` | Validate trước update | Khi có business rule cho update |
-| `ApplyUpdate` | Map param → entity | Khi cần custom mapping |
+| `CheckDeleteCondition` | Validate trước soft-delete | Khi cần chặn delete có điều kiện |
+| `ApplyUpdate` | Map param → entity, trả `bool` changed | Khi cần custom mapping |
 | `OnChanged` | Sau write thành công | Khi có cache cần invalidate |
 | `RefineListData` | Enrich sau khi load | Khi cần join data in-memory |
 
@@ -93,10 +94,10 @@ public override async Task Add(UserParam param, ServiceMessage sMessage)
 // ✅ Đúng: lưu Id trong ApplyUpdate, dùng trong OnChanged
 private Guid _lastChangedId;
 
-protected override void ApplyUpdate(User entity, UserParam param)
+protected override bool ApplyUpdate(User entity, UserParam param)
 {
     _lastChangedId = entity.Id;
-    AutoApplyUpdate(entity, param);
+    return AutoApplyUpdate(entity, param);
 }
 
 protected override void OnChanged()
@@ -121,17 +122,20 @@ protected override async Task OnChanged(User entity, UserParam param)
 
 ## BC-06 — Dùng `param.HasField("FieldName")` cho partial update
 
-> **Lưu ý:** `HasField` trả về `true` khi `UpdatedFields` rỗng (tức là trong các call `Add` thông thường, mọi field đều được coi là "có mặt"). `HasField` chỉ lọc khi `UpdatedFields` được populate — điều này xảy ra tự động qua endpoint `UpdateField`.
+> **Lưu ý (v2):** `HasField` trả về `true` **chỉ khi** fieldName có trong `UpdatedFields`. Khi `UpdatedFields` rỗng (ví dụ: trong Add), `HasField` luôn trả về `false` → `ApplyUpdate` không apply field nào → không có gì bị ghi đè ngoài ý muốn. `UpdatedFields` được tự động populate từ JSON body qua endpoint `UpdateField`.
 
 ```csharp
 // ✅ Đúng: chỉ update field được gửi lên (qua UpdateField endpoint)
-protected override void ApplyUpdate(User entity, UserParam param)
+// HasField("Name") == true chỉ khi client gửi field "Name" trong body
+protected override bool ApplyUpdate(User entity, UserParam param)
 {
-    if (param.HasField("Name")) entity.Name = param.Name;
-    if (param.HasField("Email")) entity.Email = param.Email;
+    var changed = false;
+    if (param.HasField("Name"))  { entity.Name  = param.Name;  changed = true; }
+    if (param.HasField("Email")) { entity.Email = param.Email; changed = true; }
+    return changed;
 }
 
-// ❌ Sai: ghi đè tất cả kể cả field không được gửi
+// ❌ Sai: ghi đè tất cả kể cả field không được gửi, thiếu return bool
 protected override void ApplyUpdate(User entity, UserParam param)
 {
     entity.Name = param.Name;   // null nếu client không gửi → xóa mất data
@@ -163,18 +167,19 @@ public override async Task<List<UserModel>> GetList(UserParam param, ServiceMess
 
 ```csharp
 // ✅ Đúng: để base tự map khi tên property giống nhau
-protected override void ApplyUpdate(User entity, UserParam param)
+protected override bool ApplyUpdate(User entity, UserParam param)
 {
-    AutoApplyUpdate(entity, param); // reflection-based mapping
+    return AutoApplyUpdate(entity, param); // reflection-based mapping, returns true nếu có field thay đổi
 }
 
 // ❌ Sai: map thủ công từng field khi tên giống nhau
-protected override void ApplyUpdate(User entity, UserParam param)
+protected override bool ApplyUpdate(User entity, UserParam param)
 {
     if (param.HasField("Name")) entity.Name = param.Name;
     if (param.HasField("Phone")) entity.Phone = param.Phone;
     if (param.HasField("Address")) entity.Address = param.Address;
     // ... 20 field khác giống hệt
+    return true; // nhưng vẫn thiếu — dùng AutoApplyUpdate thay thế
 }
 ```
 
@@ -204,13 +209,12 @@ public class UserController : ControllerBase
 ## BC-10 — Dùng `RefineListData` cho enrichment sau load, không query N+1 trong ApplyFilter
 
 ```csharp
-// ✅ Đúng: batch load related data sau khi có danh sách (GetAll là synchronous)
-protected override Task RefineListData(List<UserModel> models, UserParam param, ServiceMessage sMessage)
+// ✅ Đúng: batch load related data sau khi có danh sách (GetAllAsync là async)
+protected override async Task RefineListData(List<UserModel> models, UserParam param, ServiceMessage sMessage)
 {
-    var roles = _roleCache.GetAll(() => LoadAllRoles());
+    var roles = await _roleCache.GetAllAsync(async () => await LoadAllRolesAsync());
     foreach (var m in models)
         m.RoleName = roles.FirstOrDefault(r => r.Id == m.RoleId)?.Name;
-    return Task.CompletedTask;
 }
 
 // ❌ Sai: query trong vòng lặp trong RefineListData gây N+1
@@ -221,5 +225,28 @@ protected override async Task RefineListData(List<UserModel> models, UserParam p
         var roleResult = await _executor.GetByIdAsync<Role>(m.RoleId);
         m.RoleName = roleResult.Data?.Name;
     }
+}
+```
+
+---
+
+## BC-10a — Dùng `CheckDeleteCondition` để chặn delete có điều kiện
+
+```csharp
+// ✅ Đúng: chặn delete nếu entity đang được tham chiếu
+protected override async Task CheckDeleteCondition(UserParam param, ServiceMessage sMessage)
+{
+    var result = await _executor.QueryAsync<Order>(q =>
+        q.Where(o => o.UserId == param.Id && !o.IsDeleted));
+    if (result.IsSuccess && result.Data!.Any())
+        sMessage += "Không thể xóa user đang có đơn hàng chưa xử lý.";
+}
+
+// ❌ Sai: override Delete() để validate — phá vỡ logic chuẩn
+public override async Task<List<UserModel>?> Delete(UserParam param, ServiceMessage sMessage, CancellationToken ct)
+{
+    // check thủ công trong đây
+    var base_result = await base.Delete(param, sMessage, ct);
+    return base_result;
 }
 ```

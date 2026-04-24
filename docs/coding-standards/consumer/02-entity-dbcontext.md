@@ -48,7 +48,19 @@ public class Vehicle : BaseEntity
 - `Log_CreatedDate`, `Log_CreatedBy` — audit created
 - `Log_UpdatedDate`, `Log_UpdatedBy` — audit updated
 
+`BaseEntity` cũng cung cấp sẵn:
+- `RowVersion` — `byte[]` với `[Timestamp]`, dùng cho optimistic concurrency
+
 **Không tự khai báo lại các field trên** → EF migration conflict, duplicate column.
+
+> **PostgreSQL consumers:** `[Timestamp]` không map tự động sang `xmin` trên PostgreSQL. Phải cấu hình trong `OnModelCreating`:
+> ```csharp
+> modelBuilder.Entity<Vehicle>()
+>     .Property(e => e.RowVersion)
+>     .IsRowVersion();
+> ```
+> SQL Server: không cần thêm gì, `[Timestamp]` tự map sang `rowversion`.
+> Consumers phải chạy migration để thêm cột `RowVersion` vào tất cả bảng.
 
 ---
 
