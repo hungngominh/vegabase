@@ -5,59 +5,87 @@ using VegaBase.Service.Infrastructure.DbActions;
 namespace VegaBase.Service.Infrastructure.Cache;
 
 /// <summary>
-/// Generic in-memory cache base implementation using ConcurrentDictionary.
-/// Self-warming (opt-in): subclass receives IServiceScopeFactory, overrides LoadAll(),
-/// and calls Warm() once at startup.
+/// Generic async in-memory cache base implementation using ConcurrentDictionary.
+/// Features: async API (E12), per-key single-flight (E1), optional size cap (E7),
+/// negative caching (E8), snapshot-safe bulk reload (E3), default-key filtering (E4).
 /// </summary>
 public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel>
     where TKey : notnull
 {
     protected readonly ConcurrentDictionary<TKey, TCacheModel> _store = new();
+
+    // Negative cache: tracks keys whose loader returned null to avoid repeated DB hits.
+    private readonly ConcurrentDictionary<TKey, byte> _negativeKeys = new();
+
+    // Single-flight: only one Task per key runs concurrently; subsequent callers await the same Task.
+    private readonly ConcurrentDictionary<TKey, Lazy<Task<TCacheModel?>>> _inflight = new();
+
     private volatile bool _allLoaded = false;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly IServiceScopeFactory? _scopeFactory;
+    private readonly int _maxSize;
 
-    protected MemoryCacheStore() { }
+    protected MemoryCacheStore(int maxSize = int.MaxValue) { _maxSize = maxSize; }
 
-    protected MemoryCacheStore(IServiceScopeFactory scopeFactory)
+    protected MemoryCacheStore(IServiceScopeFactory scopeFactory, int maxSize = int.MaxValue)
     {
         _scopeFactory = scopeFactory;
+        _maxSize      = maxSize;
     }
 
-    /// <summary>
-    /// True if a scope factory was supplied and <see cref="Warm"/> will actually load data.
-    /// Consumers can assert this at startup to catch accidental use of the parameterless ctor.
-    /// </summary>
+    /// <inheritdoc/>
     public bool IsWarmingEnabled => _scopeFactory != null;
 
-    public TCacheModel? GetItem(TKey key, Func<TKey, TCacheModel?> loader)
+    /// <inheritdoc/>
+    public async Task<TCacheModel?> GetItemAsync(TKey key, Func<TKey, Task<TCacheModel?>> loaderAsync, CancellationToken ct = default)
     {
         if (_store.TryGetValue(key, out var hit)) return hit;
-        var loaded = loader(key);
-        if (loaded != null) _store.TryAdd(key, loaded);
-        return loaded;
+        if (_negativeKeys.ContainsKey(key)) return default;
+
+        // Single-flight: GetOrAdd ensures only one Lazy<Task<>> is created per key.
+        var lazy = _inflight.GetOrAdd(key, k => new Lazy<Task<TCacheModel?>>(() => loaderAsync(k)));
+        try
+        {
+            var result = await lazy.Value.WaitAsync(ct);
+            if (result is null)
+            {
+                _negativeKeys.TryAdd(key, 0);
+                return default;
+            }
+
+            if (_store.Count < _maxSize)
+                _store.TryAdd(key, result);
+
+            return result;
+        }
+        finally
+        {
+            _inflight.TryRemove(key, out _);
+        }
     }
 
-    public List<TCacheModel> GetAll(Func<List<TCacheModel>> loader)
+    /// <inheritdoc/>
+    public async Task<List<TCacheModel>> GetAllAsync(Func<Task<List<TCacheModel>>> loaderAsync, CancellationToken ct = default)
     {
         if (_allLoaded) return _store.Values.ToList();
 
-        _loadLock.Wait();
+        await _loadLock.WaitAsync(ct);
         try
         {
             if (_allLoaded) return _store.Values.ToList();
 
-            // Run the loader BEFORE clearing the store so a loader failure keeps
-            // the previous snapshot intact (no window of empty cache during an outage).
-            var fresh = loader();
+            // Run loader BEFORE clearing so a loader failure keeps the previous snapshot (E3).
+            var fresh = await loaderAsync();
 
             _store.Clear();
+            _negativeKeys.Clear();
             foreach (var item in fresh)
             {
                 var key = ExtractKey(item);
                 if (key is null) continue;
                 if (EqualityComparer<TKey>.Default.Equals(key, default!)) continue;
-                _store[key] = item;
+                if (_store.Count < _maxSize)
+                    _store[key] = item;
             }
 
             _allLoaded = true;
@@ -70,34 +98,33 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         return _store.Values.ToList();
     }
 
-    /// <summary>Remove a single entry. Does NOT force a full reload on the next <see cref="GetAll"/>.</summary>
+    /// <summary>Remove a single entry. Does NOT force a full reload on the next <see cref="GetAllAsync"/>.</summary>
     public void Invalidate(TKey key)
     {
         _store.TryRemove(key, out _);
+        _negativeKeys.TryRemove(key, out _);
     }
 
     public void InvalidateAll()
     {
         _store.Clear();
+        _negativeKeys.Clear();
         _allLoaded = false;
     }
 
     protected virtual TKey? ExtractKey(TCacheModel item) => default;
 
-    protected virtual List<TCacheModel> LoadAll(IDbActionExecutor executor) => [];
+    protected virtual Task<List<TCacheModel>> LoadAllAsync(IDbActionExecutor executor) => Task.FromResult(new List<TCacheModel>());
 
-    /// <summary>
-    /// Warm the cache at startup. No-op when the parameterless constructor was used
-    /// (see <see cref="IsWarmingEnabled"/>).
-    /// </summary>
-    public void Warm()
+    /// <inheritdoc/>
+    public async Task WarmAsync()
     {
         if (_scopeFactory == null) return;
-        GetAll(() =>
+        await GetAllAsync(async () =>
         {
-            using var scope = _scopeFactory.CreateScope();
-            var executor = scope.ServiceProvider.GetRequiredService<IDbActionExecutor>();
-            return LoadAll(executor);
+            using var scope    = _scopeFactory.CreateScope();
+            var executor       = scope.ServiceProvider.GetRequiredService<IDbActionExecutor>();
+            return await LoadAllAsync(executor);
         });
     }
 }
