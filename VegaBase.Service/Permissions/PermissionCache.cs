@@ -7,30 +7,38 @@ public class PermissionCache
 {
     protected override Guid ExtractKey(RolePermissionCache item) => item.RoleId;
 
-    public Task LoadAsync(Guid roleId, IEnumerable<PermissionEntry> permissions)
+    public Task LoadAsync(Guid roleId, IEnumerable<PermissionEntry> permissions, bool overwrite = false)
     {
-        if (GetItem(roleId, _ => null) != null)
+        if (!overwrite && _store.ContainsKey(roleId))
             return Task.CompletedTask;
 
-        _store[roleId] = new RolePermissionCache
-        {
-            RoleId = roleId,
-            Screens = permissions.ToDictionary(
-                p => p.ScreenCode,
-                p => new ScreenActions
+        var screens = permissions
+            .Where(p => !string.IsNullOrEmpty(p.ScreenCode))
+            .GroupBy(p => p.ScreenCode)
+            .ToDictionary(
+                g => g.Key,
+                g =>
                 {
-                    CanView   = p.CanView,
-                    CanCreate = p.CanCreate,
-                    CanEdit   = p.CanEdit,
-                    CanDelete = p.CanDelete,
-                })
-        };
+                    var first = g.First();
+                    return new ScreenActions
+                    {
+                        CanView   = first.CanView,
+                        CanCreate = first.CanCreate,
+                        CanEdit   = first.CanEdit,
+                        CanDelete = first.CanDelete,
+                    };
+                });
+
+        var snapshot = new RolePermissionCache { RoleId = roleId, Screens = screens };
+        _store.AddOrUpdate(roleId, snapshot, (_, _) => snapshot);
 
         return Task.CompletedTask;
     }
 
     public bool HasPermission(Guid roleId, string screenCode, string action)
     {
+        if (string.IsNullOrEmpty(screenCode) || string.IsNullOrEmpty(action)) return false;
+
         var role = GetItem(roleId, _ => null);
         if (role is null) return false;
         if (!role.Screens.TryGetValue(screenCode, out var screen)) return false;
