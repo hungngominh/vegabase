@@ -30,7 +30,7 @@ public static class ScreenCodes
 }
 ```
 
-**Format:** `MODULE_ENTITY` dạng UPPER_SNAKE. Xem [NS-08](../01-naming.md) cho naming rules chi tiết.
+**Format:** `MODULE_ENTITY` dạng UPPER_SNAKE (ví dụ: `VHC_VEHICLE`, `USR_USER`, `QUO_REQUEST`). Format này khác với [NS-08](../01-naming.md) (VegaBase nội bộ dùng PascalCase) — consumer dùng UPPER_SNAKE vì code đồng thời là giá trị string lưu trong DB, dễ nhận diện trong log và query hơn PascalCase.
 
 `All` dictionary được DbInitializer dùng để seed Screens table và RoleScreenPermissions khi startup.
 
