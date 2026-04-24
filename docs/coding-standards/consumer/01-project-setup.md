@@ -167,6 +167,43 @@ var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
 
 ---
 
+## LA-13 — Rate limiting cho auth endpoints
+
+Argon2id hash tốn CPU (~100ms/request). Không giới hạn tần suất login → dễ bị DoS qua tính toán hash hàng loạt. Dùng `AddVegaBaseRateLimiting()`:
+
+```csharp
+// Program.cs — services
+builder.Services.AddVegaBaseRateLimiting(); // 5 req/60s per IP, configurable
+
+// Program.cs — app pipeline
+app.UseRateLimiter(); // phải trước MapControllers
+
+// Controller — áp dụng cho auth endpoints
+[AllowAnonymous]
+[EnableRateLimiting(VegaBaseRateLimiting.AuthPolicy)]
+[HttpPost("login")]
+public async Task<IActionResult> Login([FromBody] LoginParam param) { ... }
+```
+
+**Reverse proxy:** Mặc định rate limit theo `RemoteIpAddress` (TCP-level). Sau proxy (nginx, YARP, cloud LB), `RemoteIpAddress` là IP của proxy → mọi client dùng chung 1 partition → giới hạn không hiệu quả.
+
+Giải pháp: gọi `UseForwardedHeaders` trước `UseRateLimiter` để ASP.NET Core rewrite `RemoteIpAddress` từ `X-Forwarded-For`:
+
+```csharp
+// Program.cs — app pipeline (trước UseRateLimiter)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor,
+    KnownProxies     = { IPAddress.Parse("10.0.0.1") }, // IP của proxy thực tế
+    // hoặc: KnownNetworks = { new IPNetwork(IPAddress.Parse("10.0.0.0"), 8) }
+});
+app.UseRateLimiter();
+```
+
+> Không set `KnownProxies`/`KnownNetworks` → ASP.NET Core từ chối rewrite header (bảo mật mặc định) → vẫn dùng proxy IP.
+
+---
+
 ## LA-12 — Startup sequence cố định
 
 Thứ tự bắt buộc sau `app.Build()`:

@@ -124,6 +124,8 @@ protected override async Task OnChanged(User entity, UserParam param)
 
 > **Lưu ý (v2):** `HasField` trả về `true` **chỉ khi** fieldName có trong `UpdatedFields`. Khi `UpdatedFields` rỗng (ví dụ: trong Add), `HasField` luôn trả về `false` → `ApplyUpdate` không apply field nào → không có gì bị ghi đè ngoài ý muốn. `UpdatedFields` được tự động populate từ JSON body qua endpoint `UpdateField`.
 
+> **Granularity (B1):** `UpdatedFields` chỉ chứa các key **trực tiếp** bên trong object `data{}`. Nested object được đăng ký theo tên container, không phải từng field bên trong. Ví dụ: `{"data": {"address": {"street": "123"}}}` → `UpdatedFields = {"address"}`, không phải `"street"`. Nghĩa là `address` được cập nhật **toàn bộ** khi `HasField("address")` là `true`.
+
 ```csharp
 // ✅ Đúng: chỉ update field được gửi lên (qua UpdateField endpoint)
 // HasField("Name") == true chỉ khi client gửi field "Name" trong body

@@ -98,6 +98,9 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
 
         try
         {
+            if (!Request.Body.CanSeek)
+                throw new InvalidOperationException(
+                    $"[VegaBase] {GetType().Name}.UpdateField override is missing [EnableRequestBuffering]. See BaseController<,,>.UpdateField XML doc.");
             Request.Body.Position = 0;
             using var doc = await JsonDocument.ParseAsync(Request.Body, cancellationToken: ct);
             foreach (var rootProp in doc.RootElement.EnumerateObject())

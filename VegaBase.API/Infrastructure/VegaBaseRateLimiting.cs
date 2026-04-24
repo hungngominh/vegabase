@@ -36,7 +36,16 @@ public static class VegaBaseRateLimiting
         QueueLimit     = 0,
     };
 
-    /// <summary>Registers the rate-limiter policy. Call before <c>app.UseRateLimiter()</c>.</summary>
+    /// <summary>
+    /// Registers the rate-limiter policy. Call before <c>app.UseRateLimiter()</c>.
+    /// <para>
+    /// <b>Reverse proxy deployments:</b> the partition key is <c>HttpContext.Connection.RemoteIpAddress</c>,
+    /// which is the proxy IP when the app sits behind nginx, YARP, or a cloud load balancer.
+    /// To rate-limit by real client IP, call <c>app.UseForwardedHeaders()</c> (with appropriate
+    /// <c>KnownProxies</c>/<c>KnownNetworks</c>) before <c>app.UseRateLimiter()</c> so that
+    /// ASP.NET Core rewrites <c>RemoteIpAddress</c> from the forwarded header.
+    /// </para>
+    /// </summary>
     public static IServiceCollection AddVegaBaseRateLimiting(
         this IServiceCollection services,
         Action<RateLimitOptions>? configure = null)

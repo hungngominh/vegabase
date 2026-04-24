@@ -48,6 +48,9 @@ public static class ServiceCollectionExtensions
         else
             services.AddDbContext<TContext>(o => o.UseSqlServer(connectionString));
 
+        // Forward the base DbContext type so DbActionExecutor (which depends on DbContext) can be resolved.
+        services.AddScoped<DbContext>(sp => sp.GetRequiredService<TContext>());
+
         return services;
     }
 }
