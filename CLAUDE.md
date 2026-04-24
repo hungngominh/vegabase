@@ -12,7 +12,7 @@ All code — human or AI-generated — must follow these standards. **Read the r
 |------|-------|
 | [docs/coding-standards/01-naming.md](docs/coding-standards/01-naming.md) | NS-01–NS-08: Namespaces, suffixes, audit field prefix, async naming |
 | [docs/coding-standards/02-architecture.md](docs/coding-standards/02-architecture.md) | LA-01–LA-06: Layer dependency, Core purity, Service/API responsibilities |
-| [docs/coding-standards/03-base-classes.md](docs/coding-standards/03-base-classes.md) | BC-01–BC-10: Which hooks to override, AutoApplyUpdate, RefineListData |
+| [docs/coding-standards/03-base-classes.md](docs/coding-standards/03-base-classes.md) | BC-01–BC-10a: Which hooks to override, AutoApplyUpdate, RefineListData |
 | [docs/coding-standards/04-error-handling.md](docs/coding-standards/04-error-handling.md) | EH-01–EH-06: ServiceMessage, DbResult, no silent catches |
 | [docs/coding-standards/05-security.md](docs/coding-standards/05-security.md) | SEC-01–SEC-06: IPermissionCache, Argon2id, JWT from env vars |
 | [docs/coding-standards/06-database.md](docs/coding-standards/06-database.md) | DB-01–DB-07: Soft delete, no manual audit fields, UUIDv7, UnitOfWork |
@@ -30,7 +30,7 @@ All code — human or AI-generated — must follow these standards. **Read the r
 ## Hard Rules (never break)
 
 - **Never** set `Log_CreatedDate`, `Log_CreatedBy`, `Log_UpdatedDate`, `Log_UpdatedBy` manually — infrastructure sets these.
-- **Never** physical delete — use `SoftDeleteAsync()`. Always filter `!entity.IsDeleted` in `ApplyFilter`.
+- **Never** physical delete — use `SoftDeleteAsync()`. `GetListCore` auto-applies `!IsDeleted` before `ApplyFilter`; still filter manually in direct `QueryAsync` calls.
 - **Never** hardcode role strings — use `IPermissionCache.HasPermission(roleId, screenCode, action)`.
 - **Never** cache passwords, tokens, or PII.
 - **Never** catch exceptions just to re-throw or log-and-swallow. Don't expose stack traces in API responses.
@@ -73,12 +73,13 @@ Constructor requires 4 dependencies: `IDbActionExecutor`, `IPermissionCache`, `I
 
 | Hook | Purpose |
 |------|---------|
-| `ApplyFilter(IQueryable<T>, TParam)` | Synchronous LINQ filtering — **always override** (must at minimum filter `!IsDeleted`) |
+| `ApplyFilter(IQueryable<T>, TParam)` | Synchronous LINQ filtering — receives query already filtered by `!IsDeleted`; add column filters here |
 | `Task CheckAddCondition(TParam, ServiceMessage)` | Async business validation before insert |
 | `Task CheckUpdateCondition(TParam, ServiceMessage)` | Async business validation before update |
-| `ApplyUpdate(TEntity, TParam)` | Custom mapping — default calls `AutoApplyUpdate()` which uses `HasField` + `param.Data` via reflection |
+| `Task CheckDeleteCondition(TParam, ServiceMessage)` | Async business validation before soft-delete |
+| `bool ApplyUpdate(TEntity, TParam)` | Custom mapping — returns `true` if anything changed; default calls `AutoApplyUpdate()` which uses `HasField` + `param.Data` via reflection |
 | `OnChanged()` | Synchronous cache invalidation, no params — exceptions caught & logged, write not rolled back |
-| `Task RefineListData(List<TModel>, TParam, ServiceMessage)` | Post-load enrichment — avoid N+1 |
+| `Task RefineListData(List<TModel>, TParam, ServiceMessage)` | Post-load enrichment — avoid N+1; called even when list is empty |
 | `Task<List<TModel>> GetListCore(TParam, ServiceMessage)` | Override only when async cross-table filter is needed (don't `await` inside `ApplyFilter`) |
 
 Details in [03-base-classes.md](docs/coding-standards/03-base-classes.md) (internal) and [consumer/03-service-controller.md](docs/coding-standards/consumer/03-service-controller.md) (how to apply in consumer apps).
@@ -87,9 +88,13 @@ Details in [03-base-classes.md](docs/coding-standards/03-base-classes.md) (inter
 
 Provides `GetList`, `GetItem`, `Add`, `UpdateField`, `Delete`. Call `FillCallerInfo()` at the top of any write action. All controllers require `[Authorize]`.
 
+- `UpdateField` is routed as `POST /{id:guid}/UpdateField` — route `id` is bound to `param.Id`.
+- `Delete` is routed as `POST /{id:guid}/Delete` — route `id` is bound to `param.Id`.
+- Write actions (`Add`, `UpdateField`, `Delete`) enforce a 1 MB request body limit via `[RequestSizeLimit]`.
+
 ### `BaseParamModel`
 
-All param models extend this. Key members: `CallerUsername`, `CallerRole`, `CallerRoleIds`, `Id`, `Page`/`PageSize` (defaults 1/20), `UpdatedFields` (`HashSet`). Use `HasField(fieldName)` in `ApplyUpdate` to check partial updates.
+All param models extend this. Key members: `CallerUsername`, `CallerRole`, `CallerRoleIds`, `Id`, `Page`/`PageSize` (defaults 1/20, clamped: `Page ≥ 1`, `1 ≤ PageSize ≤ 1000`), `UpdatedFields` (`HashSet`). Use `HasField(fieldName)` in `ApplyUpdate` to check partial updates — returns `false` when `UpdatedFields` is empty (no field is implicitly included).
 
 ## Infrastructure Quick Reference
 
@@ -99,7 +104,8 @@ All param models extend this. Key members: `CallerUsername`, `CallerRole`, `Call
 - **Validation errors:** accumulate via `ServiceMessage +=` (first error wins).
 - **DB results:** check `DbResult<T>.IsSuccess` before `.Data`.
 - **HTTP responses:** `ApiResponse<T>.Ok(data)` / `ApiResponse<T>.Fail(message)`.
-- **Cache:** `ICacheStore<TKey, TCacheModel>` for read-heavy master data only (roles, permissions, categories). Invalidate from `OnChanged()`.
+- **Cache:** `ICacheStore<TKey, TCacheModel>` (fully async — `GetItemAsync`, `GetAllAsync`, `WarmAsync`) for read-heavy master data only (roles, permissions, categories). Invalidate from `OnChanged()`.
+- **DI helpers:** `services.AddVegaBase()` (API layer), `services.AddVegaBaseCore()` (Service layer), `services.AddVegaBaseDbContext<TContext>()`, `services.AddVegaBaseJwtAuthentication(config)`, `app.UseVegaBase()`, `options.AddVegaBaseModelBinder()`.
 
 ## Build & Run
 
@@ -134,6 +140,7 @@ Commit message format: `feat: <description> (v1.0.x)`
 | `DB_NAME` | No | `AppDB` |
 | `DB_USER` | No | `postgres` |
 | `DB_PASSWORD` | No | — |
+| `DB_MAX_POOL_SIZE` | No | `200` |
 
 ## Contributor Workflow
 

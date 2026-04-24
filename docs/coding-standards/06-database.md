@@ -87,20 +87,23 @@ await _context.Database.ExecuteSqlRawAsync(
 ## DB-06 — Luôn filter `IsDeleted == false` trong `ApplyFilter`
 
 ```csharp
-// ✅ Đúng
+// ✅ Đúng: BaseService tự động lọc !IsDeleted trước khi gọi ApplyFilter.
+// Override chỉ cần thêm filter nghiệp vụ — không cần lặp lại !IsDeleted.
 protected override IQueryable<User> ApplyFilter(IQueryable<User> query, UserParam param)
 {
-    query = query.Where(u => !u.IsDeleted);
     if (!string.IsNullOrEmpty(param.Keyword))
         query = query.Where(u => u.Name.Contains(param.Keyword));
     return query;
 }
 
-// ❌ Sai: quên filter IsDeleted — trả về cả record đã xóa
-protected override IQueryable<User> ApplyFilter(IQueryable<User> query, UserParam param)
-{
-    return query.Where(u => u.Name.Contains(param.Keyword));
-}
+// ⚠️ Lưu ý: Khi dùng _executor.QueryAsync() trực tiếp (ngoài GetListCore),
+// phải tự thêm !IsDeleted vì BaseService không thể biết:
+var result = await _executor.QueryAsync<User>(q =>
+    q.Where(u => !u.IsDeleted && u.Email == param.Email));
+
+// ❌ Sai: quên filter IsDeleted trong QueryAsync trực tiếp
+var result = await _executor.QueryAsync<User>(q =>
+    q.Where(u => u.Email == param.Email)); // trả về cả user đã xóa
 ```
 
 ---

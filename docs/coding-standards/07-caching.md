@@ -10,11 +10,11 @@ Cache phù hợp cho: lookup tables, permission lists, category lists, config va
 Cache không phù hợp cho: user data, search results, transactional data.
 
 ```csharp
-// ✅ Đúng: cache danh sách role (GetAll là synchronous)
-var roles = _roleCache.GetAll(loader: () => LoadRolesFromDb());
+// ✅ Đúng: cache danh sách role (GetAllAsync là async)
+var roles = await _roleCache.GetAllAsync(loaderAsync: async () => await LoadRolesFromDbAsync());
 
 // ❌ Sai: cache kết quả tìm kiếm động (không phù hợp dùng cache)
-var searchResults = _productCache.GetAll(loader: () => SearchProducts(param.Keyword));
+var searchResults = await _productCache.GetAllAsync(loaderAsync: async () => await SearchProductsAsync(param.Keyword));
 ```
 
 ---
@@ -115,17 +115,17 @@ protected override void OnChanged()
 
 ---
 
-## CA-06 — Cache là optimization — logic phải đúng kể cả khi cache trống
+## CA-06 — Cache là optimization — logic phải đúng kể cả khi cache trống (GetItemAsync là async)
 
 ```csharp
-// ✅ Đúng: GetItem là synchronous, loader nhận TKey làm tham số
-var role = _cache.GetItem(roleId, loader: key =>
+// ✅ Đúng: GetItemAsync là async, loader nhận TKey làm tham số
+var role = await _cache.GetItemAsync(roleId, loaderAsync: async key =>
 {
-    var result = _executor.GetByIdAsync<Role>(key).GetAwaiter().GetResult();
+    var result = await _executor.GetByIdAsync<Role>(key);
     return result.IsSuccess ? MapToModel(result.Data!) : null;
 });
 
 // ❌ Sai: assume cache luôn có data, không có fallback
-var role = _cache.GetItem(roleId, loader: _ => null); // loader trả null → cache miss không được xử lý
+var role = await _cache.GetItemAsync(roleId, loaderAsync: _ => Task.FromResult<RoleModel?>(null));
 var roleName = role!.Name; // NullReferenceException khi cache trống
 ```
