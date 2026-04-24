@@ -17,6 +17,12 @@ namespace VegaBase.API.Infrastructure;
 /// the consuming API must configure <see cref="TokenValidationParameters"/> accordingly
 /// (e.g. <c>ValidateIssuer=false</c>) or validation will fail.</item>
 /// </list>
+/// <para>
+/// <b>Startup note (F1):</b> call <c>builder.Configuration.AddEnvironmentVariables()</c> in
+/// <c>Program.cs</c> so the above env-var keys are visible to <see cref="IConfiguration"/>.
+/// ASP.NET Core 6+ includes this by default via <c>WebApplication.CreateBuilder</c>; earlier
+/// hosts may need to add it explicitly.
+/// </para>
 /// </summary>
 public class JwtHelper : IJwtHelper
 {
