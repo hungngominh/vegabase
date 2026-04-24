@@ -59,6 +59,12 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
     protected void CheckPermission(PermissionCheckParam param, ServiceMessage sMessage)
     {
+        if (string.IsNullOrEmpty(ScreenCode))
+        {
+            sMessage += "Màn hình chưa được cấu hình (ScreenCode trống)";
+            return;
+        }
+
         if (string.Equals(param.CallerRole, "admin", StringComparison.OrdinalIgnoreCase)) return;
 
         if (!_permissionCache.HasPermission(param.CallerRoleIds, ScreenCode, param.Action))
@@ -125,7 +131,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         if (data is null) { sMessage += "Dữ liệu thêm mới là bắt buộc"; return null; }
 
         var entity = ConvertToEntity(data);
-        var result = await _executor.AddAsync(entity, CallerUsername, ct);
+        var result = await _executor.AddAsync(entity, AuditUsername(), ct);
         if (!HandleResult(result, sMessage)) return null;
 
         SafeOnChanged(nameof(Add));
@@ -150,7 +156,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         if (!changed)
             return [ConvertToModel(entity)];
 
-        var updateResult = await _executor.UpdateAsync(entity, CallerUsername, ct);
+        var updateResult = await _executor.UpdateAsync(entity, AuditUsername(), ct);
         if (!HandleResult(updateResult, sMessage)) return null;
 
         SafeOnChanged(nameof(UpdateField));
@@ -167,16 +173,22 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         if (!HandleResult(findResult, sMessage)) return null;
         if (findResult.Data == null) { sMessage += "Không tìm thấy dữ liệu"; return null; }
 
-        if (findResult.Data.IsDeleted) return [];
-
         await CheckDeleteCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername, ct);
+        var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, AuditUsername(), ct);
         if (!HandleResult(deleteResult, sMessage)) return null;
 
         SafeOnChanged(nameof(Delete));
         return [];
+    }
+
+    private string AuditUsername()
+    {
+        var u = CallerUsername;
+        if (string.IsNullOrEmpty(u))
+            _logger.LogWarning("[BaseService] CallerUsername is empty — audit fields will be blank. Ensure HTTP context is active.");
+        return u;
     }
 
     // ── Hooks ────────────────────────────────────────────────────
@@ -248,7 +260,12 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             if (!dst.PropertyType.IsAssignableFrom(src.PropertyType) && dstType != srcType)
             {
                 var srcVal = src.GetValue(data);
-                if (srcVal == null) continue;
+                if (srcVal == null)
+                {
+                    _logger.LogWarning("[AutoApplyUpdate] Skipping {Prop}: null value cannot be set on non-nullable destination type {DstType}",
+                        src.Name, dst.PropertyType.Name);
+                    continue;
+                }
                 try
                 {
                     var converted = Convert.ChangeType(srcVal, dstType);
@@ -257,7 +274,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
                 }
                 catch
                 {
-                    _logger.LogDebug("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
+                    _logger.LogWarning("[AutoApplyUpdate] Skipping {Prop}: type mismatch {Src} -> {Dst}",
                         src.Name, src.PropertyType.Name, dst.PropertyType.Name);
                 }
                 continue;

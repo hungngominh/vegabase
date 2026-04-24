@@ -52,6 +52,12 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException)
+            {
+                _logger.LogInformation("Request cancelled by client [TraceId={TraceId}]", context.TraceIdentifier);
+                return;
+            }
+
             var traceId      = context.TraceIdentifier;
             var rawMessage   = ex.Message;
             var safeMessage  = SanitizeLogMessage != null

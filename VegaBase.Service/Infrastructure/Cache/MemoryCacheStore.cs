@@ -60,7 +60,9 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         }
         finally
         {
-            _inflight.TryRemove(key, out _);
+            // Only remove if we still own this entry — prevents a cancelled caller from
+            // evicting a Lazy that a concurrent caller is already awaiting.
+            _inflight.TryRemove(new KeyValuePair<TKey, Lazy<Task<TCacheModel?>>>(key, lazy));
         }
     }
 
