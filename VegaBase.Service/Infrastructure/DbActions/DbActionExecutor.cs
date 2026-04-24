@@ -211,7 +211,7 @@ public class DbActionExecutor : IDbActionExecutor
             _logger.LogError(ex,
                 "[DbAction] Transaction {Operation} FAILED in {DurationMs}ms",
                 operationName, sw.ElapsedMilliseconds);
-            return DbResult<T>.Failure(MapException(ex, operationName), sw.Elapsed);
+            return DbResult<T>.Failure(MapException(ex, "Transaction"), sw.Elapsed);
         }
     }
 
@@ -238,10 +238,11 @@ public class DbActionExecutor : IDbActionExecutor
             };
         }
 
-        if (ex.InnerException?.GetType().Name == "SqlException")
+        if (ex.InnerException is { } inner &&
+            inner.GetType().FullName?.EndsWith(".SqlException", StringComparison.Ordinal) == true)
         {
-            var sqlEx = ex.InnerException;
-            var number = (int)(sqlEx.GetType().GetProperty("Number")?.GetValue(sqlEx) ?? 0);
+            var sqlEx = inner;
+            var number = Convert.ToInt32(sqlEx.GetType().GetProperty("Number")?.GetValue(sqlEx) ?? 0);
             var type = number switch
             {
                 2627 or 2601 => DbErrorType.DuplicateKey,
