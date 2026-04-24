@@ -59,54 +59,71 @@ builder.Services.AddScoped<DbContext>(sp => sp.GetRequiredService<AppDbContext>(
 Unable to resolve service for type 'Microsoft.EntityFrameworkCore.DbContext'
 ```
 
+**Shorthand với DI helper:** VegaBase cung cấp `AddVegaBaseDbContext<T>()` đọc `DB_*` env vars và tự chọn Npgsql/SQL Server + thêm bridge tự động:
+
+```csharp
+// Program.cs — thay thế cho đoạn trên
+builder.Services.AddVegaBaseDbContext<AppDbContext>();
+// Bridge được thêm tự động bên trong helper
+```
+
 ---
 
 ## LA-09 — DI đăng ký bắt buộc
 
-Phải đăng ký đủ 5 dependency cốt lõi của VegaBase:
+**Cách nhanh — dùng DI helpers:**
+
+```csharp
+// Program.cs
+builder.Services.AddVegaBaseDbContext<AppDbContext>(); // LA-08
+builder.Services.AddVegaBase();                        // đăng ký core + IJwtHelper
+builder.Services.AddVegaBaseJwtAuthentication(builder.Configuration); // JWT bearer
+```
+
+`AddVegaBase()` đăng ký tất cả:
+
+| Dependency | Lifetime |
+|---|---|
+| `IHttpContextAccessor` | (framework) |
+| `IDbActionExecutor` | Scoped |
+| `IPermissionCache` | Singleton |
+| `IPasswordHasher` | Singleton |
+| `IJwtHelper` | Singleton |
+
+**Cách thủ công** (nếu không dùng helper):
 
 ```csharp
 // Program.cs
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IDbActionExecutor, DbActionExecutor>();
 builder.Services.AddSingleton<IPermissionCache, PermissionCache>();
-builder.Services.AddTransient<IJwtHelper, VegaBase.API.Infrastructure.JwtHelper>();
+builder.Services.AddSingleton<IJwtHelper, JwtHelper>();
 builder.Services.AddSingleton<IPasswordHasher, Argon2idHasher>();
 ```
 
-| Dependency | Lifetime | Lý do |
-|---|---|---|
-| `IHttpContextAccessor` | (framework) | BaseService đọc JWT claims từ HTTP context |
-| `IDbActionExecutor` | Scoped | Một DB session per HTTP request |
-| `IPermissionCache` | Singleton | Cache sống suốt app lifetime |
-| `IJwtHelper` | Transient | Stateless, tạo mới mỗi lần dùng |
-| `IPasswordHasher` | Singleton | Stateless, Argon2id không có state |
-
 Thiếu bất kỳ dependency nào → runtime crash khi resolve service đầu tiên của request.
+
+> **Quan trọng:** `IPermissionCache` phải là **Singleton**. Đăng ký là Scoped hoặc Transient → cache rỗng mỗi request → mọi action non-admin trả 403.
 
 ---
 
 ## LA-10 — Request buffering middleware
 
-Phải thêm middleware **trước** `UseAuthentication` (sau Exception middleware):
+`ExceptionHandlingMiddleware` (được cài qua `app.UseVegaBase()`) tự động gọi `EnableBuffering()` cho mọi request. Đây là lý do **phải gọi `UseVegaBase()` trước `UseAuthentication()`**:
 
 ```csharp
 // Program.cs
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+var app = builder.Build();
 
-// REQUIRED: enable request body re-read for partial-update detection
-app.Use(async (context, next) =>
-{
-    context.Request.EnableBuffering();
-    await next();
-});
-
+app.UseVegaBase();          // cài ExceptionHandlingMiddleware + EnableBuffering tự động
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 ```
 
-**Tại sao:** `BaseController.UpdateField` đọc raw request body 2 lần — lần 1 để deserialize, lần 2 để detect partial-update fields qua `HasField`. Không có `EnableBuffering` → stream hết sau lần đọc đầu → `HasField` luôn trả `false` → mọi field đều bị update kể cả field không gửi lên.
+**Không cần** thêm middleware `EnableBuffering` thủ công nữa — đã được xử lý bên trong `UseVegaBase()`.
+
+> **Kỹ thuật:** `BaseController.UpdateField` đọc raw request body 2 lần — lần 1 để deserialize, lần 2 để detect partial-update fields qua `UpdatedFields`. Nếu body không được buffer, stream hết sau lần đọc đầu. VegaBase dùng `[EnableRequestBuffering]` attribute trên action này để đảm bảo, thêm `ExceptionHandlingMiddleware` gọi `EnableBuffering` là belt-and-suspenders.
 
 ---
 
@@ -166,10 +183,11 @@ using (var scope = app.Services.CreateScope())
 await DbInitializer.SeedAsync(app.Services);
 
 // 3. Warm singleton caches (after seed, before first request)
-app.Services.GetRequiredService<IPermissionCache>().Warm();
+await app.Services.GetRequiredService<IPermissionCache>().WarmAsync();
 // warm other singleton caches here...
 
 // 4. Middleware pipeline
+app.UseVegaBase();          // ExceptionHandlingMiddleware + request buffering
 app.UseCors();
 app.UseHttpsRedirection();
 // ...
