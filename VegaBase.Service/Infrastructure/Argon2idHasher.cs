@@ -18,6 +18,10 @@ public sealed class Argon2idHasher : IPasswordHasher
 
     public string Hash(string plainPassword)
     {
+        ArgumentNullException.ThrowIfNull(plainPassword);
+        if (plainPassword.Length == 0)
+            throw new ArgumentException("Password must not be empty.", nameof(plainPassword));
+
         var salt = RandomNumberGenerator.GetBytes(SaltLength);
 
         using var argon2 = new Argon2id(Encoding.UTF8.GetBytes(plainPassword));
@@ -36,6 +40,9 @@ public sealed class Argon2idHasher : IPasswordHasher
 
     public bool Verify(string plainPassword, string storedHash)
     {
+        if (string.IsNullOrEmpty(plainPassword) || string.IsNullOrEmpty(storedHash))
+            return false;
+
         try
         {
             var storedBytes = Convert.FromBase64String(storedHash);
