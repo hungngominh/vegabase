@@ -4,8 +4,12 @@ namespace VegaBase.Service.Permissions;
 
 /// <summary>
 /// Permission cache keyed by RoleId.
-/// Inherits GetItem / GetAll / Invalidate from ICacheStore.
-/// Adds LoadAsync() to warm and HasPermission() to check.
+/// Adds LoadAsync() to warm per-role permissions and HasPermission() to check.
+/// <para>
+/// <b>Registration requirement (F3):</b> must be registered as a <b>Singleton</b>.
+/// Registering as Scoped or Transient means each request gets an empty cache —
+/// no permissions will be found and all non-admin actions will return 403.
+/// </para>
 /// </summary>
 public interface IPermissionCache : ICacheStore<Guid, RolePermissionCache>
 {

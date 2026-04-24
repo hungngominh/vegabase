@@ -14,9 +14,10 @@ public static class CallerInfoHelper
         param.CallerUsername = user.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
 
         var allRoleCodes = user.FindAll("roleCode").Select(c => c.Value).ToList();
+        // admin wins regardless of claim order; otherwise alphabetically first for determinism (A13)
         param.CallerRole = allRoleCodes.Contains("admin", StringComparer.OrdinalIgnoreCase)
             ? "admin"
-            : allRoleCodes.FirstOrDefault() ?? string.Empty;
+            : allRoleCodes.OrderBy(r => r, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty;
 
         param.CallerRoleIds = user.FindAll("roleId")
             .Select(c => Guid.TryParse(c.Value, out var g) ? g : Guid.Empty)
