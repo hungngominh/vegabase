@@ -27,17 +27,18 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unhandled exception");
+            var traceId = context.TraceIdentifier;
+            _logger.LogError(ex, "Unhandled exception [TraceId={TraceId}]", traceId);
 
             if (context.Response.HasStarted)
             {
-                _logger.LogError(ex, "Exception after response started — cannot return 500");
+                _logger.LogError(ex, "Exception after response started — cannot return 500 [TraceId={TraceId}]", traceId);
                 throw;
             }
 
             context.Response.StatusCode  = (int)HttpStatusCode.InternalServerError;
             context.Response.ContentType = "application/json";
-            var response = ApiResponse<object>.Fail("Đã xảy ra lỗi không mong muốn.");
+            var response = ApiResponse<object>.Fail("Đã xảy ra lỗi không mong muốn.", traceId);
             await context.Response.WriteAsync(JsonSerializer.Serialize(response));
         }
     }

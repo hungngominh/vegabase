@@ -35,7 +35,10 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
         if (sMessage.HasError)
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
 
-        return Ok(ApiResponse<TModel>.Ok(result, param.TotalCount, param.Page, param.PageSize));
+        var totalPages = param.PageSize > 0
+            ? (param.TotalCount + param.PageSize - 1) / param.PageSize
+            : 0;
+        return Ok(ApiResponse<TModel>.Ok(result, param.TotalCount, param.Page, param.PageSize, totalPages));
     }
 
     [HttpGet("{id:guid}")]
@@ -71,15 +74,22 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     {
         FillCallerInfo(param);
 
-        Request.Body.Position = 0;
-        using var doc = await JsonDocument.ParseAsync(Request.Body);
-        foreach (var rootProp in doc.RootElement.EnumerateObject())
+        try
         {
-            if (!rootProp.Name.Equals("data", StringComparison.OrdinalIgnoreCase)) continue;
-            if (rootProp.Value.ValueKind != JsonValueKind.Object) break;
-            foreach (var prop in rootProp.Value.EnumerateObject())
-                param.UpdatedFields.Add(prop.Name);
-            break;
+            Request.Body.Position = 0;
+            using var doc = await JsonDocument.ParseAsync(Request.Body);
+            foreach (var rootProp in doc.RootElement.EnumerateObject())
+            {
+                if (!rootProp.Name.Equals("data", StringComparison.OrdinalIgnoreCase)) continue;
+                if (rootProp.Value.ValueKind != JsonValueKind.Object) break;
+                foreach (var prop in rootProp.Value.EnumerateObject())
+                    param.UpdatedFields.Add(prop.Name);
+                break;
+            }
+        }
+        catch (JsonException)
+        {
+            return BadRequest(ApiResponse<TModel>.Fail("Dữ liệu không hợp lệ"));
         }
 
         var sMessage = new ServiceMessage();
