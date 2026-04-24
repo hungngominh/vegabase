@@ -122,9 +122,12 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
         var data   = GetAddData(param);
         var entity = ConvertToEntity(data);
+        if (entity.Id == Guid.Empty)
+            entity.Id = Guid.CreateVersion7();
         var result = await _executor.AddAsync(entity, CallerUsername);
         if (!HandleResult(result, sMessage)) return null;
 
+        SafeOnChanged(nameof(Add));
         return [ConvertToModel(result.Data!)];
     }
 
@@ -146,6 +149,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var updateResult = await _executor.UpdateAsync(entity, CallerUsername);
         if (!HandleResult(updateResult, sMessage)) return null;
 
+        SafeOnChanged(nameof(UpdateField));
         return [ConvertToModel(entity)];
     }
 
@@ -162,10 +166,27 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername);
         if (!HandleResult(deleteResult, sMessage)) return null;
 
+        SafeOnChanged(nameof(Delete));
         return [];
     }
 
     // ── Hooks ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Called after every successful Add, UpdateField, or Delete.
+    /// Override to invalidate caches or trigger side-effects.
+    /// Exceptions are caught and logged — the original operation is not rolled back.
+    /// </summary>
+    protected virtual void OnChanged() { }
+
+    private void SafeOnChanged(string operation)
+    {
+        try { OnChanged(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OnChanged failed after successful {Operation}", operation);
+        }
+    }
 
     protected virtual IQueryable<TEntity> ApplyFilter(IQueryable<TEntity> query, TParam param) => query;
 
