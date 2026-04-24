@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
@@ -171,6 +172,9 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
 
         if (findResult.Data.IsDeleted) return [];
 
+        await CheckDeleteCondition(param, sMessage);
+        if (sMessage.HasError) return null;
+
         var deleteResult = await _executor.SoftDeleteAsync(findResult.Data, CallerUsername, ct);
         if (!HandleResult(deleteResult, sMessage)) return null;
 
@@ -207,6 +211,9 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
     protected virtual Task CheckUpdateCondition(TParam param, ServiceMessage sMessage)
         => Task.CompletedTask;
 
+    protected virtual Task CheckDeleteCondition(TParam param, ServiceMessage sMessage)
+        => Task.CompletedTask;
+
     /// <summary>
     /// Apply partial-update fields to the tracked entity.
     /// Returns <c>true</c> if at least one field was assigned (so the caller can skip the DB round-trip otherwise).
@@ -225,8 +232,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             return false;
         }
 
-        var entityType  = entity.GetType();
-        var sourceProps = data.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var entityProps = GetCachedPropMap(entity.GetType());
+        var sourceProps = GetCachedProps(data.GetType());
 
         var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Id", "IsDeleted", "Log_CreatedDate", "Log_CreatedBy", "Log_UpdatedDate", "Log_UpdatedBy" };
@@ -237,8 +244,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             if (skip.Contains(src.Name)) continue;
             if (!param.HasField(src.Name)) continue;
 
-            var dst = entityType.GetProperty(src.Name, BindingFlags.Public | BindingFlags.Instance);
-            if (dst == null || !dst.CanWrite) continue;
+            if (!entityProps.TryGetValue(src.Name, out var dst) || !dst.CanWrite) continue;
 
             var dstType = Nullable.GetUnderlyingType(dst.PropertyType) ?? dst.PropertyType;
             var srcType = Nullable.GetUnderlyingType(src.PropertyType) ?? src.PropertyType;
@@ -254,6 +260,20 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         }
         return changed;
     }
+
+    // ── Reflection cache ─────────────────────────────────────────
+
+    private static readonly ConcurrentDictionary<Type, PropertyInfo[]> _propCache = new();
+    private static readonly ConcurrentDictionary<Type, Dictionary<string, PropertyInfo>> _propMapCache = new();
+
+    private static PropertyInfo[] GetCachedProps(Type t)
+        => _propCache.GetOrAdd(t, static type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance));
+
+    private static Dictionary<string, PropertyInfo> GetCachedPropMap(Type t)
+        => _propMapCache.GetOrAdd(t, static type =>
+            type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .GroupBy(p => p.Name)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase));
 
     // ── Abstract ─────────────────────────────────────────────────
 
@@ -271,8 +291,8 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         where TDest : new()
     {
         var dest      = new TDest();
-        var destType  = typeof(TDest);
-        var srcProps  = source.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var srcProps  = GetCachedProps(source.GetType());
+        var destProps = GetCachedPropMap(typeof(TDest));
 
         var skip = skipAudit
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -283,9 +303,7 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         foreach (var src in srcProps)
         {
             if (skip.Contains(src.Name)) continue;
-
-            var dst = destType.GetProperty(src.Name, BindingFlags.Public | BindingFlags.Instance);
-            if (dst == null || !dst.CanWrite) continue;
+            if (!destProps.TryGetValue(src.Name, out var dst) || !dst.CanWrite) continue;
 
             var value = src.GetValue(source);
             if (value == null)

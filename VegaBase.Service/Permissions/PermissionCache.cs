@@ -39,8 +39,7 @@ public class PermissionCache
     {
         if (string.IsNullOrEmpty(screenCode) || string.IsNullOrEmpty(action)) return false;
 
-        var role = GetItem(roleId, _ => null);
-        if (role is null) return false;
+        if (!_store.TryGetValue(roleId, out var role) || role is null) return false;
         if (!role.Screens.TryGetValue(screenCode, out var screen)) return false;
 
         return action.ToLowerInvariant() switch

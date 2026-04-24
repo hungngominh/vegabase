@@ -7,10 +7,31 @@ using VegaBase.Core.Common;
 
 namespace VegaBase.API.Middleware;
 
+/// <summary>
+/// Catches unhandled exceptions, returns a generic 500 JSON response with a trace ID,
+/// and logs the full exception at Error level.
+/// <para>
+/// <b>PII redaction (F5):</b> set <see cref="SanitizeLogMessage"/> to strip sensitive data from
+/// exception messages before they reach the log sink. The delegate receives the raw message and
+/// must return a safe replacement. Example: replace email addresses with "[redacted]".
+/// </para>
+/// <para>
+/// <b>Log-level guidance (F6):</b> configure log levels via <c>appsettings.json</c> /
+/// environment variables using the standard <c>Logging:LogLevel</c> key hierarchy,
+/// e.g. <c>Logging__LogLevel__VegaBase.API=Warning</c>.
+/// </para>
+/// </summary>
 public class ExceptionHandlingMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<ExceptionHandlingMiddleware> _logger;
+
+    /// <summary>
+    /// Optional delegate that sanitizes an exception message before it is logged.
+    /// Set this at startup to redact PII (passwords, emails, tokens) from log output.
+    /// Returns the original message when null.
+    /// </summary>
+    public static Func<string, string>? SanitizeLogMessage { get; set; }
 
     public ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
     {
@@ -27,8 +48,13 @@ public class ExceptionHandlingMiddleware
         }
         catch (Exception ex)
         {
-            var traceId = context.TraceIdentifier;
-            _logger.LogError(ex, "Unhandled exception [TraceId={TraceId}]", traceId);
+            var traceId      = context.TraceIdentifier;
+            var rawMessage   = ex.Message;
+            var safeMessage  = SanitizeLogMessage != null
+                ? SanitizeLogMessage(rawMessage)
+                : rawMessage;
+
+            _logger.LogError(ex, "Unhandled exception: {Message} [TraceId={TraceId}]", safeMessage, traceId);
 
             if (context.Response.HasStarted)
             {
