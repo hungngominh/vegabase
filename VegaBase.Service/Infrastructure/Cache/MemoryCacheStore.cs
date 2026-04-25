@@ -8,6 +8,12 @@ namespace VegaBase.Service.Infrastructure.Cache;
 /// Generic async in-memory cache base implementation using ConcurrentDictionary.
 /// Features: async API (E12), per-key single-flight (E1), optional size cap (E7),
 /// negative caching (E8), snapshot-safe bulk reload (E3), default-key filtering (E4).
+/// <para>
+/// <b>Negative cache lifecycle:</b> when the loader returns <c>null</c> for a key, that key is
+/// remembered to avoid repeated DB hits. There is NO automatic expiry — if the underlying record
+/// is later created, callers MUST call <see cref="Invalidate"/>(key) or <see cref="InvalidateAll"/>
+/// to evict the negative entry, otherwise readers continue to receive <c>default</c>.
+/// </para>
 /// </summary>
 public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel>
     where TKey : notnull
@@ -21,6 +27,7 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
     private readonly ConcurrentDictionary<TKey, Lazy<Task<TCacheModel?>>> _inflight = new();
 
     private volatile bool _allLoaded = false;
+    private long _generation = 0;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly IServiceScopeFactory? _scopeFactory;
     private readonly int _maxSize;
@@ -42,11 +49,16 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         if (_store.TryGetValue(key, out var hit)) return hit;
         if (_negativeKeys.ContainsKey(key)) return default;
 
-        // Single-flight: GetOrAdd ensures only one Lazy<Task<>> is created per key.
+        var genAtStart = Interlocked.Read(ref _generation);
         var lazy = _inflight.GetOrAdd(key, k => new Lazy<Task<TCacheModel?>>(() => loaderAsync(k)));
         try
         {
             var result = await lazy.Value.WaitAsync(ct);
+
+            // Skip post-loader writes if a bulk GetAllAsync ran during the await — its snapshot wins.
+            var bulkRanDuringLoad = Interlocked.Read(ref _generation) != genAtStart;
+            if (bulkRanDuringLoad) return result;
+
             if (result is null)
             {
                 _negativeKeys.TryAdd(key, 0);
@@ -60,8 +72,6 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
         }
         finally
         {
-            // Only remove if we still own this entry — prevents a cancelled caller from
-            // evicting a Lazy that a concurrent caller is already awaiting.
             _inflight.TryRemove(new KeyValuePair<TKey, Lazy<Task<TCacheModel?>>>(key, lazy));
         }
     }
@@ -90,7 +100,13 @@ public class MemoryCacheStore<TKey, TCacheModel> : ICacheStore<TKey, TCacheModel
                     _store[key] = item;
             }
 
-            _allLoaded = true;
+            // Only mark loaded if we got real data — empty result on first call shouldn't lock out future
+            // reloads when the underlying table is later populated. Caller can force reload via InvalidateAll().
+            if (fresh.Count > 0)
+            {
+                _allLoaded = true;
+                Interlocked.Increment(ref _generation);
+            }
         }
         finally
         {

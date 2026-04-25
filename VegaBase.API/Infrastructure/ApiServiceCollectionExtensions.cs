@@ -35,6 +35,7 @@ public static class ApiServiceCollectionExtensions
     /// <summary>
     /// Configures ASP.NET Core JWT bearer authentication using VegaBase's standard
     /// <c>JWT_SECRET</c> / <c>JWT_ISSUER</c> / <c>JWT_AUDIENCE</c> configuration keys.
+    /// <c>JWT_CLOCK_SKEW_SECONDS</c> (optional, 0–300, default 30) — tolerance for server clock drift.
     /// Call after <see cref="AddVegaBase"/> and before <c>app.UseAuthentication()</c>.
     /// </summary>
     public static IServiceCollection AddVegaBaseJwtAuthentication(
@@ -44,6 +45,12 @@ public static class ApiServiceCollectionExtensions
         var secret   = configuration["JWT_SECRET"]   ?? string.Empty;
         var issuer   = configuration["JWT_ISSUER"];
         var audience = configuration["JWT_AUDIENCE"];
+        var clockSkewSeconds = double.TryParse(
+            configuration["JWT_CLOCK_SKEW_SECONDS"],
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var cs) && cs >= 0 && cs <= 300
+            ? cs : 30.0;
 
         if (string.IsNullOrEmpty(secret))
             throw new InvalidOperationException("JWT_SECRET is required for JWT authentication.");
@@ -62,7 +69,7 @@ public static class ApiServiceCollectionExtensions
                     ValidateAudience         = audience != null,
                     ValidAudience            = audience,
                     ValidateLifetime         = true,
-                    ClockSkew                = TimeSpan.Zero,
+                    ClockSkew                = TimeSpan.FromSeconds(clockSkewSeconds),
                 };
             });
 

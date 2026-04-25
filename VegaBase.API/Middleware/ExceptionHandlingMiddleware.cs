@@ -73,7 +73,14 @@ public class ExceptionHandlingMiddleware
 
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
             var response = ApiResponse<object>.Fail("Đã xảy ra lỗi không mong muốn.", traceId);
-            await context.Response.WriteAsJsonAsync(response, cancellationToken: context.RequestAborted);
+            try
+            {
+                await context.Response.WriteAsJsonAsync(response, cancellationToken: context.RequestAborted);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Client disconnected before error response could be written [TraceId={TraceId}]", traceId);
+            }
         }
     }
 }

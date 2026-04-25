@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Reflection;
@@ -30,23 +31,67 @@ public sealed class FlatQueryModelBinder : IModelBinder
 
         foreach (var (key, prop) in props)
         {
-            var value = bindingContext.HttpContext.Request.Query[key];
-            if (value.Count == 0) continue;
+            var values = bindingContext.HttpContext.Request.Query[key];
+            if (values.Count == 0) continue;
 
             try
             {
-                var targetType     = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-                var converter      = TypeDescriptor.GetConverter(targetType);
+                var underlying = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
 
+                // Multi-value path: List<T> / IEnumerable<T> / T[] / HashSet<T>
+                var enumerableInterface = prop.PropertyType.GetInterfaces()
+                    .Concat(new[] { prop.PropertyType })
+                    .FirstOrDefault(i => i.IsGenericType
+                                         && (i.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                                             || i.GetGenericTypeDefinition() == typeof(ICollection<>)
+                                             || i.GetGenericTypeDefinition() == typeof(IList<>)));
+                if (prop.PropertyType != typeof(string) && enumerableInterface != null)
+                {
+                    var elementType = enumerableInterface.GetGenericArguments()[0];
+                    var elementConverter = TypeDescriptor.GetConverter(elementType);
+                    if (elementConverter.CanConvertFrom(typeof(string)))
+                    {
+                        var listType = typeof(List<>).MakeGenericType(elementType);
+                        var list = (IList)Activator.CreateInstance(listType)!;
+                        foreach (var v in values)
+                        {
+                            if (v is null) continue;
+                            var item = elementConverter.ConvertFromInvariantString(v);
+                            list.Add(item);
+                        }
+                        if (prop.PropertyType.IsArray)
+                        {
+                            var arr = Array.CreateInstance(elementType, list.Count);
+                            list.CopyTo(arr, 0);
+                            prop.SetValue(instance, arr);
+                        }
+                        else if (prop.PropertyType.IsAssignableFrom(listType))
+                        {
+                            prop.SetValue(instance, list);
+                        }
+                        else
+                        {
+                            // Try ctor that takes IEnumerable<elementType> (e.g. HashSet<T>)
+                            var ctor = prop.PropertyType.GetConstructor(new[] { typeof(IEnumerable<>).MakeGenericType(elementType) });
+                            if (ctor != null) prop.SetValue(instance, ctor.Invoke(new object[] { list }));
+                        }
+                        continue;
+                    }
+                }
+
+                // Single-value path
+                var converter = TypeDescriptor.GetConverter(underlying);
                 if (converter.CanConvertFrom(typeof(string)))
                 {
-                    var converted = converter.ConvertFromInvariantString(value[0] ?? string.Empty);
+                    var converted = converter.ConvertFromInvariantString(values[0] ?? string.Empty);
                     prop.SetValue(instance, converted);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip properties that fail type conversion — leave at default value.
+                // Fix #11: log instead of swallowing silently. ILogger from DI is not directly available
+                // in IModelBinder — write to the binding context's ModelState as a debug aid.
+                bindingContext.ModelState.TryAddModelError(key, $"Conversion failed: {ex.GetType().Name}");
             }
         }
 

@@ -24,6 +24,12 @@ namespace VegaBase.API.Infrastructure;
 /// ASP.NET Core 6+ includes this by default via <c>WebApplication.CreateBuilder</c>; earlier
 /// hosts may need to add it explicitly.
 /// </para>
+/// <para>
+/// <b>Secret rotation:</b> the secret is captured at construction time. Mid-process secret rotation
+/// requires recreating the <see cref="JwtHelper"/> instance (or the host) — this matches the
+/// behaviour of <see cref="TokenValidationParameters.IssuerSigningKey"/> set in
+/// <c>AddVegaBaseJwtAuthentication</c>.
+/// </para>
 /// </summary>
 public class JwtHelper : IJwtHelper
 {
@@ -33,6 +39,7 @@ public class JwtHelper : IJwtHelper
 
     private readonly IConfiguration _config;
     private readonly ILogger<JwtHelper> _logger;
+    private readonly string _secret;
 
     public JwtHelper(IConfiguration config, ILogger<JwtHelper> logger)
     {
@@ -44,6 +51,7 @@ public class JwtHelper : IJwtHelper
         if (Encoding.UTF8.GetByteCount(secret) < MinSecretBytes)
             throw new InvalidOperationException(
                 $"JWT_SECRET must be at least {MinSecretBytes} UTF-8 bytes (HMAC-SHA256 minimum).");
+        _secret = secret;
     }
 
     public string GenerateToken(string username, IEnumerable<(string Code, Guid Id)> roles)
@@ -75,7 +83,7 @@ public class JwtHelper : IJwtHelper
         if (roleClaims == 0 && hadAnyRoles)
             _logger.LogError("[JwtHelper] All role entries were invalid — token will have no role claims for user '{Username}'", username);
 
-        var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JWT_SECRET"]!));
+        var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secret));
         var creds   = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var hours   = double.TryParse(
                           _config["JWT_EXPIRY_HOURS"],

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Konscious.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace VegaBase.Service.Infrastructure;
 
@@ -15,6 +16,15 @@ public sealed class Argon2idHasher : IPasswordHasher
     private const int Iterations  = 3;
     private const int HashLength  = 32;    // 256-bit
     private const int SaltLength  = 16;    // 128-bit
+
+    private readonly ILogger<Argon2idHasher>? _logger;
+
+    public Argon2idHasher() { }
+
+    public Argon2idHasher(ILogger<Argon2idHasher> logger)
+    {
+        _logger = logger;
+    }
 
     public string Hash(string plainPassword)
     {
@@ -61,8 +71,15 @@ public sealed class Argon2idHasher : IPasswordHasher
             var computed = argon2.GetBytes(HashLength);
             return CryptographicOperations.FixedTimeEquals(computed, storedHash_);
         }
-        catch
+        catch (FormatException)
         {
+            // Stored hash is not valid Base64 — treated as wrong password without log noise.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            // Crypto error, OOM, or library bug — operationally distinct from "wrong password".
+            _logger?.LogWarning(ex, "[Argon2idHasher] Verify threw — treating as failed verification.");
             return false;
         }
     }

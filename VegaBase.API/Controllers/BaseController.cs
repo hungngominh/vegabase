@@ -45,7 +45,7 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
             return BadRequest(ApiResponse<TModel>.Fail(sMessage.Value));
 
         var totalPages = param.PageSize > 0
-            ? (param.TotalCount + param.PageSize - 1) / param.PageSize
+            ? (int)Math.Min(int.MaxValue, ((long)param.TotalCount + param.PageSize - 1) / param.PageSize)
             : 0;
         return Ok(ApiResponse<TModel>.Ok(result, param.TotalCount, param.Page, param.PageSize, totalPages));
     }
@@ -87,6 +87,13 @@ public abstract class BaseController<TService, TModel, TParam> : ControllerBase
     /// <c>[EnableRequestBuffering]</c> on the override. Attributes are not inherited through
     /// virtual method overrides in .NET — omitting it causes <see cref="NotSupportedException"/>
     /// when <c>Request.Body.Position = 0</c> is reset.
+    /// <para>
+    /// <b>Performance note:</b> the body is parsed twice — once via <c>[FromBody]</c> model binding
+    /// (full deserialization) and again via <see cref="JsonDocument.ParseAsync"/> to capture top-level
+    /// <c>data</c> field names into <see cref="BaseParamModel.UpdatedFields"/>. The 1 MB request size
+    /// limit bounds the cost. A custom <see cref="JsonConverter{T}"/> that records keys during
+    /// deserialization could reduce this to a single pass.
+    /// </para>
     /// </remarks>
     [HttpPost("{id:guid}/UpdateField")]
     [EnableRequestBuffering]
