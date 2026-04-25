@@ -119,6 +119,12 @@ public class DbActionExecutor : IDbActionExecutor
     /// <summary>Maximum entities inserted per <see cref="SaveChangesAsync"/> call to avoid oversized transactions.</summary>
     public const int AddRangeChunkSize = 500;
 
+    /// <summary>
+    /// Adds a list of entities in chunks of <see cref="AddRangeChunkSize"/> rows per <c>SaveChangesAsync</c>,
+    /// all wrapped in a single transaction. Provides atomicity but holds row/page locks until commit —
+    /// for very large batches (e.g. >10k rows), prefer multiple <see cref="ExecuteInTransactionAsync"/>
+    /// calls so each commit releases locks.
+    /// </summary>
     public async Task<DbResult<List<TEntity>>> AddRangeAsync<TEntity>(List<TEntity> entities, string createdBy, CancellationToken ct = default)
         where TEntity : BaseEntity
     {
@@ -192,7 +198,11 @@ public class DbActionExecutor : IDbActionExecutor
         {
             entity.Log_UpdatedBy = updatedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
-            _db.Entry(entity).State = EntityState.Modified;
+            var updateEntry = _db.Entry(entity);
+            if (updateEntry.State == EntityState.Detached)
+                updateEntry.State = EntityState.Modified;
+            // For tracked entities, EF detects changes automatically — no need to force Modified state,
+            // which would mark every column dirty and emit UPDATE for unchanged fields.
             await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
@@ -221,7 +231,11 @@ public class DbActionExecutor : IDbActionExecutor
             entity.IsDeleted = true;
             entity.Log_UpdatedBy = deletedBy;
             entity.Log_UpdatedDate = DateTimeOffset.UtcNow;
-            _db.Entry(entity).State = EntityState.Modified;
+            var deleteEntry = _db.Entry(entity);
+            if (deleteEntry.State == EntityState.Detached)
+                deleteEntry.State = EntityState.Modified;
+            // For tracked entities, EF detects changes automatically — no need to force Modified state,
+            // which would mark every column dirty and emit UPDATE for unchanged fields.
             await _db.SaveChangesAsync(ct);
             sw.Stop();
             _logger.LogInformation(
@@ -283,17 +297,17 @@ public class DbActionExecutor : IDbActionExecutor
 
         if (ex.InnerException is PostgresException pgEx)
         {
-            var type = pgEx.SqlState switch
+            var (pgType, pgSafeMessage) = pgEx.SqlState switch
             {
-                "23505" => DbErrorType.DuplicateKey,
-                "23503" => DbErrorType.ForeignKeyViolation,
-                "57014" => DbErrorType.Timeout,
-                var s when s?.StartsWith("08") == true => DbErrorType.ConnectionError,
-                _ => DbErrorType.Unknown
+                "23505" => (DbErrorType.DuplicateKey,         "Bản ghi đã tồn tại."),
+                "23503" => (DbErrorType.ForeignKeyViolation,  "Vi phạm ràng buộc khoá ngoại."),
+                "57014" => (DbErrorType.Timeout,              "Thao tác cơ sở dữ liệu quá hạn."),
+                var s when s?.StartsWith("08") == true => (DbErrorType.ConnectionError, "Không thể kết nối cơ sở dữ liệu."),
+                _ => (DbErrorType.Unknown, "Lỗi cơ sở dữ liệu.")
             };
             return new DbError
             {
-                Type = type, Message = pgEx.MessageText,
+                Type = pgType, Message = pgSafeMessage,
                 InnerException = ex, EntityName = entityName, ActionName = actionName
             };
         }
@@ -303,17 +317,17 @@ public class DbActionExecutor : IDbActionExecutor
         {
             var sqlEx = inner;
             var number = Convert.ToInt32(sqlEx.GetType().GetProperty("Number")?.GetValue(sqlEx) ?? 0);
-            var type = number switch
+            var (sqlType, sqlSafeMessage) = number switch
             {
-                2627 or 2601 => DbErrorType.DuplicateKey,
-                547           => DbErrorType.ForeignKeyViolation,
-                -2            => DbErrorType.Timeout,
-                53            => DbErrorType.ConnectionError,
-                _             => DbErrorType.Unknown
+                2627 or 2601 => (DbErrorType.DuplicateKey,         "Bản ghi đã tồn tại."),
+                547           => (DbErrorType.ForeignKeyViolation,  "Vi phạm ràng buộc khoá ngoại."),
+                -2            => (DbErrorType.Timeout,              "Thao tác cơ sở dữ liệu quá hạn."),
+                53            => (DbErrorType.ConnectionError,      "Không thể kết nối cơ sở dữ liệu."),
+                _             => (DbErrorType.Unknown,              "Lỗi cơ sở dữ liệu.")
             };
             return new DbError
             {
-                Type = type, Message = sqlEx.Message,
+                Type = sqlType, Message = sqlSafeMessage,
                 InnerException = ex, EntityName = entityName, ActionName = actionName
             };
         }
@@ -328,13 +342,13 @@ public class DbActionExecutor : IDbActionExecutor
         if (ex is DbUpdateConcurrencyException)
             return new DbError
             {
-                Type = DbErrorType.ConcurrencyConflict, Message = ex.Message,
+                Type = DbErrorType.ConcurrencyConflict, Message = "Dữ liệu đã bị thay đổi bởi người khác. Vui lòng tải lại.",
                 InnerException = ex, EntityName = entityName, ActionName = actionName
             };
 
         return new DbError
         {
-            Type = DbErrorType.Unknown, Message = ex.Message,
+            Type = DbErrorType.Unknown, Message = "Lỗi cơ sở dữ liệu.",
             InnerException = ex, EntityName = entityName, ActionName = actionName
         };
     }

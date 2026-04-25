@@ -97,9 +97,11 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         var result = await _executor.QueryAsync<TEntity>(q =>
         {
             var filtered = ApplyFilter(q.Where(e => !e.IsDeleted), param);
+            // NOTE: filtered.Count() is sync inside this Func — known scalability issue, see issue tracker.
             param.TotalCount = filtered.Count();
+            var skip = (long)(param.Page - 1) * param.PageSize;
             return filtered
-                .Skip((param.Page - 1) * param.PageSize)
+                .Skip(skip > int.MaxValue ? int.MaxValue : (int)skip)
                 .Take(param.PageSize);
         }, ct: ct);
 
@@ -153,7 +155,13 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         await CheckUpdateCondition(param, sMessage);
         if (sMessage.HasError) return null;
 
-        var changed = ApplyUpdate(entity, param);
+        bool changed;
+        try { changed = ApplyUpdate(entity, param); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[BaseService] ApplyUpdate threw — entity may remain dirty in change tracker. Caller should treat scope as poisoned.");
+            throw;
+        }
         if (!changed)
             return [ConvertToModel(entity)];
 
@@ -269,7 +277,17 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
                 }
                 try
                 {
-                    var converted = Convert.ChangeType(srcVal, dstType);
+                    object? converted;
+                    if (dstType == typeof(Guid))
+                        converted = Guid.Parse(srcVal.ToString()!);
+                    else if (dstType.IsEnum)
+                        converted = srcVal is string s ? Enum.Parse(dstType, s, ignoreCase: true) : Enum.ToObject(dstType, srcVal);
+                    else if (dstType == typeof(DateOnly))
+                        converted = srcVal is string ds ? DateOnly.Parse(ds, System.Globalization.CultureInfo.InvariantCulture) : (DateOnly)srcVal;
+                    else if (dstType == typeof(TimeOnly))
+                        converted = srcVal is string ts ? TimeOnly.Parse(ts, System.Globalization.CultureInfo.InvariantCulture) : (TimeOnly)srcVal;
+                    else
+                        converted = Convert.ChangeType(srcVal, dstType, System.Globalization.CultureInfo.InvariantCulture);
                     _logger.LogDebug("[AutoApplyUpdate] Converted {Prop}: {SrcVal} ({SrcType}) -> {ConvertedVal} ({DstType})",
                         src.Name, srcVal, srcType.Name, converted, dstType.Name);
                     dst.SetValue(entity, converted);
@@ -309,7 +327,17 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
         => _propMapCache.GetOrAdd(t, static type =>
             type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .GroupBy(p => p.Name)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase));
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(p => GetTypeDepth(p.DeclaringType!)).First(),
+                    StringComparer.OrdinalIgnoreCase));
+
+    private static int GetTypeDepth(Type t)
+    {
+        var depth = 0;
+        while (t.BaseType != null) { depth++; t = t.BaseType; }
+        return depth;
+    }
 
     // ── Abstract ─────────────────────────────────────────────────
 
@@ -352,6 +380,10 @@ public abstract class BaseService<TEntity, TModel, TParam> : IBaseService<TModel
             {
                 dst.SetValue(dest, value);
             }
+            else if (dst.PropertyType.IsEnum && src.PropertyType == Enum.GetUnderlyingType(dst.PropertyType))
+                dst.SetValue(dest, Enum.ToObject(dst.PropertyType, value));
+            else if (src.PropertyType.IsEnum && dst.PropertyType == Enum.GetUnderlyingType(src.PropertyType))
+                dst.SetValue(dest, Convert.ChangeType(value, dst.PropertyType));
         }
 
         return dest;
